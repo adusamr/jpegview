@@ -276,6 +276,19 @@ ForceGDIPlus=false
 ; results in much slower loading of JPEGs! Only set to true if you really need this.
 UseEmbeddedColorProfiles=false
 
+; Color profile of the display, used to show colors correctly on wide gamut or calibrated monitors.
+; Images are converted from sRGB to this profile right before they are painted to the screen.
+; Saved images, the clipboard and printing are not affected.
+;   auto : use the ICC profile assigned to the monitor in Windows color management (default).
+;          The profile of the monitor JPEGView is shown on is used, also when moving the window to another monitor.
+;          Nothing is done if the monitor uses the default sRGB profile, or if Windows color manages the monitor
+;          itself (HDR or "Automatically manage color for apps").
+;   none : no display color management
+;   any other value : file name of an ICC profile (*.icc, *.icm), absolute or relative to the EXE path
+; Images with embedded profiles (see UseEmbeddedColorProfiles) are first converted to sRGB, so colors outside
+; of the sRGB gamut are clipped.
+DisplayColorProfile=auto
+
 ; -----------------------------------------------
 ; - TRANSPARENCY OPTIONS
 ; -----------------------------------------------

@@ -53,6 +53,7 @@
 #include "DirectoryWatcher.h"
 #include "DesktopWallpaper.h"
 #include "PrintImage.h"
+#include "ICCProfileTransform.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////////
 // Constants
@@ -271,6 +272,7 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 
 	m_pPanelMgr = new CPanelMgr();
 	m_pZoomNavigatorCtl = NULL;
+	m_pDisplayColorCache = new CDisplayColorDIBCache();
 	m_pEXIFDisplayCtl = NULL;
 	m_pWndButtonPanelCtl = NULL;
 	m_pInfoButtonPanelCtl = NULL;
@@ -292,6 +294,7 @@ CMainDlg::~CMainDlg() {
 	delete m_pImageProcParams;
 	delete m_pImageProcParamsKept;
 	delete m_pZoomNavigatorCtl;
+	delete m_pDisplayColorCache;
 	delete m_pCropCtl;
 	delete m_pPanelMgr; // this will delete all panel controllers and all panels
 	delete m_pKeyMap;
@@ -455,6 +458,9 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	CPaintDC dc(m_hWnd);
 	m_dRealizedZoom = 1.0;
 
+	// Make sure the display color transform matches the monitor the window is on
+	CDisplayColorProfile::Update(m_hWnd);
+
 	this->GetClientRect(&m_clientRect);
 	CRect imageProcessingArea = m_pImageProcPanelCtl->PanelRect();
 	CRectF visRectZoomNavigator(0.0f, 0.0f, 1.0f, 1.0f);
@@ -525,8 +531,9 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		m_pPanelMgr->PrepareMemDCMgr(memDCMgr, excludedClippingRects);
 		memDCMgr.ExcludeFromClippingRegion(dc, excludedClippingRects);
 
-		// Paint the DIB
+		// Paint the DIB, converted to the color space of the display
 		if (pDIBData != NULL) {
+			pDIBData = m_pDisplayColorCache->Convert(pDIBData, clippedSize, m_pCurrentImage->DIBGeneration());
 			BITMAPINFO bmInfo{ 0 };
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, m_DIBOffsets);
 			// The DIB is also blitted into the memory DCs of the panels
@@ -612,6 +619,8 @@ void CMainDlg::PaintToDC(CDC& dc) {
 				*GetImageProcessingParams(),
 				CreateDefaultProcessingFlags());
 		if (pDIBData != NULL) {
+			CDisplayColorProfile::Update(m_hWnd);
+			pDIBData = m_pDisplayColorCache->Convert(pDIBData, clippedSize, pCurrentImage->DIBGeneration());
 			BITMAPINFO bmInfo{ 0 };
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, CPoint(0, 0));
 		}
@@ -675,6 +684,35 @@ void CMainDlg::DisplayFileName(const CRect& imageProcessingArea, CDC& dc, double
 		CString sFileName = Helpers::GetFileInfoString(CSettingsProvider::This().FileNameFormat(), m_pCurrentImage, m_pFileList, realizedZoom);
 		HelpersGUI::DrawTextBordered(dc, sFileName, CRect(HelpersGUI::ScaleToScreen(2) + imageProcessingArea.left, 0, imageProcessingArea.right, HelpersGUI::ScaleToScreen(30)), DT_LEFT); 
 	}
+}
+
+LRESULT CMainDlg::OnMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {
+	// Repaint with the matching display color profile when the window is moved to another monitor
+	if (CDisplayColorProfile::Update(m_hWnd)) {
+		this->Invalidate(FALSE);
+	}
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CMainDlg::OnDisplayChange(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {
+	// Monitor configuration changed - re-read the display color profiles
+	CDisplayColorProfile::Invalidate();
+	this->Invalidate(FALSE);
+	bHandled = FALSE;
+	return 0;
+}
+
+LRESULT CMainDlg::OnActivateApp(UINT /*uMsg*/, WPARAM wParam, LPARAM /*lParam*/, BOOL& bHandled) {
+	// The user may have assigned another profile to the monitor in the Windows color management settings meanwhile
+	if (wParam) {
+		CDisplayColorProfile::Invalidate();
+		if (CDisplayColorProfile::Update(m_hWnd)) {
+			this->Invalidate(FALSE);
+		}
+	}
+	bHandled = FALSE;
+	return 0;
 }
 
 LRESULT CMainDlg::OnSize(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& /*bHandled*/) {

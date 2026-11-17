@@ -220,6 +220,13 @@ public:
 	// Gets the DIB pixels of the last processed thumbnail image, NULL if none or invalid
 	void* DIBPixelsLastThumbnail() { return (m_pThumbnail == NULL) ? NULL : m_pThumbnail->DIBPixelsLastProcessed(false); }
 
+	// Generation number of the DIB returned by the last GetDIB() call (and its variants). The number changes each time the
+	// content of the returned DIB changes and is unique over all images. Used to cache the display color converted DIB.
+	unsigned int DIBGeneration() const { return m_nDIBGeneration; }
+
+	// Same as DIBGeneration() for the DIB returned by the last GetThumbnailDIB() call
+	unsigned int ThumbnailDIBGeneration() const { return (m_pThumbnail == NULL) ? 0 : m_pThumbnail->DIBGeneration(); }
+
 	// Gets the image processing flags as set as default (may varies from file to file)
 	EProcessingFlags GetInitialProcessFlags() const { return m_eProcFlagsInitial; }
 
@@ -385,6 +392,8 @@ private:
 	void* m_pDIBPixelsLUTProcessed;
 	void* m_pDIBPixels;
 	void* m_pLastDIB; // one of the pointers above
+	unsigned int m_nDIBGeneration; // see DIBGeneration()
+	bool m_bDIBRecomputed; // set when the content of the cached DIBs changed since the last generation update
 
 	// Cached gray and smoothed gray image for unsharp masking
 	int16* m_pGrayImage;

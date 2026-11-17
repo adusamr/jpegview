@@ -14,6 +14,13 @@
 #include <math.h>
 #include <assert.h>
 
+// Global counter for CJPEGImage::DIBGeneration(), global to make the generation numbers unique over all images
+static volatile LONG s_nDIBGenerationCounter = 0;
+
+static unsigned int NewDIBGeneration() {
+	return (unsigned int)::InterlockedIncrement(&s_nDIBGenerationCounter);
+}
+
 // Hacky workaround.  Look at comment block in CJPEGImage::Resample()
 // undefine this flag to investigate which optimization might cause that particular failure (TODO)
 #define AVX_SSE_FREEZE_FALLBACK
@@ -108,6 +115,8 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 	m_pDIBPixels = NULL;
 	m_pDIBPixelsLUTProcessed = NULL;
 	m_pLastDIB = NULL;
+	m_nDIBGeneration = NewDIBGeneration();
+	m_bDIBRecomputed = false;
 	m_pThumbnail = NULL;
 	m_pHistogramThumbnail = NULL;
 	m_pGrayImage = NULL;
@@ -768,6 +777,9 @@ void CJPEGImage::SetDimRects(const CDimRect* dimRects, int numberOfRects) {
 				CBasicProcessing::DimRectangle32bpp(DIBWidth(), DIBHeight(), m_pDIBPixelsLUTProcessed,
 					dimRects[i].Rect, dimRects[i].Factor);
 			}
+			if (numberOfRects > m_nNumDimRects) {
+				m_nDIBGeneration = NewDIBGeneration(); // DIB content changed in place
+			}
 		} else {
 			// force to recreate processed DIB on next access
 			delete[] m_pDIBPixelsLUTProcessed;
@@ -955,6 +967,12 @@ void* CJPEGImage::GetDIBInternal(CSize fullTargetSize, CSize clippingSize, CPoin
 
 	EResizeType eResizeType = GetResizeType(fullTargetSize, CSize(m_nOrigWidth, m_nOrigHeight));
 
+	// needed to detect if the content of the returned DIB changed
+	void* pOldLastDIB = m_pLastDIB;
+	if (bShowGridChanged || bMustResampleGeometry || bMustResampleQuality || bMustResampleProcessings) {
+		m_bDIBRecomputed = true;
+	}
+
 	// the geometrical parameters must be set before calling ApplyCorrectionLUT()
 	CRect oldClippingRect = CRect(m_TargetOffset, m_ClippingSize);
 	m_FullTargetSize = fullTargetSize;
@@ -994,6 +1012,7 @@ void* CJPEGImage::GetDIBInternal(CSize fullTargetSize, CSize clippingSize, CPoin
 		}
 
 		bParametersChanged = true;
+		m_bDIBRecomputed = true;
 
 		assert(pDIBUnsharpMasked == NULL);
 
@@ -1055,6 +1074,10 @@ void* CJPEGImage::GetDIBInternal(CSize fullTargetSize, CSize clippingSize, CPoin
 	m_eProcFlags = eProcFlags;
 
 	m_pLastDIB = pDIB;
+	if (pDIBUnsharpMasked != NULL || pDIB != pOldLastDIB || m_bDIBRecomputed) {
+		m_nDIBGeneration = NewDIBGeneration();
+		m_bDIBRecomputed = false;
+	}
 	if (m_pDIBPixelsLUTProcessed != pDIBUnsharpMasked) {
 		delete[] pDIBUnsharpMasked;
 	}
@@ -1247,6 +1270,8 @@ void* CJPEGImage::ApplyCorrectionLUTandLDC(const CImageProcessingParams & imageP
 			memcpy(pCachedTargetDIB, pSourceDIB, dibSize.cx*dibSize.cy*4);
 		}
 	}
+
+	m_bDIBRecomputed = true; // a new processed DIB was created (the branch returning pSourceDIB does not get here)
 
 	if (bUseDimming && pCachedTargetDIB != NULL) {
 		for (int i = 0; i < m_nNumDimRects; i++) {
@@ -1455,6 +1480,7 @@ void CJPEGImage::MarkAsDestructivelyProcessed() {
 
 void CJPEGImage::InvalidateAllCachedPixelData() {
 	m_pLastDIB = NULL;
+	m_bDIBRecomputed = true;
 	if (m_bLDCOwned) delete m_pLDC; // LDC mask must be recalculated!
 	m_pLDC = NULL;
 	delete[] m_pDIBPixels; 

@@ -1183,6 +1183,16 @@
             because it forces JPEGView to read the JPEG image with GDI+ instead of using the optimized TJPEG library.
             <br /><br />
 
+            <b>Colors look oversaturated or wrong on a wide gamut or calibrated monitor</b><br />
+            JPEGView converts the displayed image from sRGB to the ICC profile assigned to the monitor in the Windows
+            color management settings ('Color Management' control panel). The profile of the monitor the window is currently
+            on is used. Make sure the correct profile is assigned to the monitor there. A different profile file can be set with<br />
+            DisplayColorProfile=C:\path\to\profile.icc<br />
+            and display color management can be switched off with DisplayColorProfile=none in the INI file.
+            The conversion is skipped if Windows color manages the monitor itself (HDR or 'Automatically manage color for apps').
+            Saved and copied images are not affected by this setting.
+            <br /><br />
+
             <b>The image set as desktop wallpaper does not span all screens.</b><br />
             In Windows 7 / 8 and later a desktop wallpaper image can span multiple screens. To create such a wallpaper, switch to fullscreen
             mode (F11 key) and expand JPEGView to span all screens (F12 key). Then zoom in the image so that no black borders are visible on

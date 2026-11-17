@@ -89,6 +89,8 @@ public:
 	bool ExchangeXButtons() { return m_bExchangeXButtons; }
 	bool AutoRotateEXIF() { return m_bAutoRotateEXIF; }
 	bool UseEmbeddedColorProfiles() { return m_bUseEmbeddedColorProfiles; }
+	// "auto" (monitor profile from Windows color management), "none" or file name of an ICC profile
+	const CString& DisplayColorProfile() { return m_sDisplayColorProfile; }
 	LPCTSTR ACCExclude() { return m_sACCExclude; }
 	LPCTSTR ACCInclude() { return m_sACCInclude; }
 	LPCTSTR LDCExclude() { return m_sLDCExclude; }
@@ -259,6 +261,7 @@ private:
 	bool m_bExchangeXButtons;
 	bool m_bAutoRotateEXIF;
 	bool m_bUseEmbeddedColorProfiles;
+	CString m_sDisplayColorProfile;
 	CString m_sACCExclude;
 	CString m_sACCInclude;
 	CString m_sLDCExclude;
