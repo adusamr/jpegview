@@ -115,6 +115,18 @@ bool CPrintImage::DoPrint(HDC hPrinterDC, CPrintParameters* pPrintParameters, CJ
 			void* pDIBData = pImage->GetDIB(fullTargetSize, dibSize, offset, procParams, eFlags);
 			pImage->EnableDimming(true);
 
+			// Pixels kept in the color space of an embedded profile are printed as sRGB (on a copy, the DIB is cached by the image)
+			void* pSRGBCopy = NULL;
+			if (pDIBData != NULL && pImage->GetICCProfile() != NULL) {
+				size_t nBytes = (size_t)dibSize.cx * dibSize.cy * 4;
+				pSRGBCopy = new(std::nothrow) char[nBytes];
+				if (pSRGBCopy != NULL) {
+					memcpy(pSRGBCopy, pDIBData, nBytes);
+					ICCProfileTransform::ConvertToSRGB(pImage->GetICCProfile(), pSRGBCopy, dibSize.cx, dibSize.cy, 4);
+					pDIBData = pSRGBCopy;
+				}
+			}
+
 			if (pDIBData != NULL) {
 				BITMAPINFO bmInfo{ 0 };
 				bmInfo.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -133,6 +145,7 @@ bool CPrintImage::DoPrint(HDC hPrinterDC, CPrintParameters* pPrintParameters, CJ
 				}
 				bSuccess = true;
 			}
+			delete[] (char*)pSRGBCopy;
 
 			::EndPage(hPrinterDC);
 		}

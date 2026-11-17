@@ -10,6 +10,11 @@ New features:
   Skipped for monitors using the default sRGB profile and when Windows color manages the display (HDR / Auto Color Management).
 - New INI file setting: "DisplayColorProfile"
   auto (default) = use the monitor profile from Windows, none = off, or the file name of an ICC profile
+- Wide gamut images: with UseEmbeddedColorProfiles=true and display color management on, images with an embedded RGB
+  profile keep their pixel values and are converted directly from the embedded profile to the display profile when
+  painted, so colors outside of sRGB are no longer clipped. They are converted to sRGB when saved, copied or printed.
+  JPEG images are then read with TurboJPEG (fast) instead of GDI+.
+- PNG: embedded ICC profiles (iCCP) are now read with libpng, also for animated PNG
 
 [1.3.46] 2023-10-07
 New features:

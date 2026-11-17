@@ -191,6 +191,9 @@ public:
 	CJPEGProvider* GetJPEGProvider() { return m_pJPEGProvider; }
 	CKeyMap* GetKeyMap() { return m_pKeyMap; }
 	CPoint GetDIBOffset() { return m_DIBOffsets; }
+	// Converts the last processed DIB of the image (or a DIB just obtained from it) to the color space of the display.
+	// Returns pDIB if no conversion is needed. The returned pointer is valid until the next call.
+	void* ConvertDIBForDisplay(CJPEGImage* pImage, void* pDIB, CSize dibSize);
 	double GetZoomMultiplier(CJPEGImage* pImage, const CRect& clientRect);
 	Helpers::EAutoZoomMode GetAutoZoomMode() { return m_bFullScreenMode ? m_eAutoZoomModeFullscreen : m_eAutoZoomModeWindowed; }
 	CPoint GetOffsets() { return m_offsets; }

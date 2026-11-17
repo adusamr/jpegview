@@ -1190,7 +1190,10 @@
             DisplayColorProfile=C:\path\to\profile.icc<br />
             and display color management can be switched off with DisplayColorProfile=none in the INI file.
             The conversion is skipped if Windows color manages the monitor itself (HDR or 'Automatically manage color for apps').
-            Saved and copied images are not affected by this setting.
+            Saved and copied images are not affected by this setting.<br />
+            To also see the full colors of wide gamut images (e.g. Display P3 or Adobe RGB photos), set UseEmbeddedColorProfiles=true.
+            Images are then converted directly from their embedded profile to the display profile, without clipping them to sRGB first.
+            With display color management on, this does not slow down loading of JPEG images.
             <br /><br />
 
             <b>The image set as desktop wallpaper does not span all screens.</b><br />

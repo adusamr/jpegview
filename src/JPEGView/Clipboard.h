@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProcessParams.h"
+#include "ICCProfileTransform.h"
 
 class CJPEGImage;
 
@@ -28,6 +29,6 @@ public:
 private:
 	CClipboard(void);
 
-	static void DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceImageDIB32, LPCTSTR fileName);
+	static void DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceImageDIB32, const ICCProfilePtr& profile, LPCTSTR fileName);
 	static void DoCopyFileNameText(HWND hWnd, LPCTSTR fileName);
 };

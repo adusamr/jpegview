@@ -3,6 +3,7 @@
 
 #include "ProcessParams.h"
 #include "WorkThread.h"
+#include "ICCProfileTransform.h"
 #include <gdiplus.h>
 
 class CJPEGImage;
@@ -98,6 +99,8 @@ private:
 	CString m_sLastPngFileName; // Only for animated PNG files
 	CString m_sLastJxlFileName; // Only for animated JPEG XL files
 	CString m_sLastAvifFileName; // Only for animated AVIF files
+	CString m_sAnimationProfileFile; // file name of m_animationProfile
+	ICCProfilePtr m_animationProfile; // embedded profile of the animation being played (decoders read it only for the first frame)
 
 	virtual void ProcessRequest(CRequestBase& request);
 	virtual void AfterFinishProcess(CRequestBase& request);

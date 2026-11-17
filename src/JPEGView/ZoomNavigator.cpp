@@ -80,7 +80,7 @@ void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRec
 	// Paint the DIB, converted to the color space of the display
 	if (pDIBData != NULL) {
 		static CDisplayColorDIBCache s_displayColorCache;
-		pDIBData = s_displayColorCache.Convert(pDIBData, navigatorRect.Size(), pImage->ThumbnailDIBGeneration());
+		pDIBData = s_displayColorCache.Convert(pDIBData, navigatorRect.Size(), pImage->ThumbnailDIBGeneration(), pImage->GetICCProfile());
 		int xDest = navigatorRect.left;
 		int yDest = navigatorRect.top;
 		int xSize = navigatorRect.Width();

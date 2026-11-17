@@ -533,7 +533,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 
 		// Paint the DIB, converted to the color space of the display
 		if (pDIBData != NULL) {
-			pDIBData = m_pDisplayColorCache->Convert(pDIBData, clippedSize, m_pCurrentImage->DIBGeneration());
+			pDIBData = ConvertDIBForDisplay(m_pCurrentImage, pDIBData, clippedSize);
 			BITMAPINFO bmInfo{ 0 };
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, m_DIBOffsets);
 			// The DIB is also blitted into the memory DCs of the panels
@@ -620,7 +620,7 @@ void CMainDlg::PaintToDC(CDC& dc) {
 				CreateDefaultProcessingFlags());
 		if (pDIBData != NULL) {
 			CDisplayColorProfile::Update(m_hWnd);
-			pDIBData = m_pDisplayColorCache->Convert(pDIBData, clippedSize, pCurrentImage->DIBGeneration());
+			pDIBData = ConvertDIBForDisplay(pCurrentImage, pDIBData, clippedSize);
 			BITMAPINFO bmInfo{ 0 };
 			CPoint ptDIBStart = HelpersGUI::DrawDIB32bppWithBlackBorders(dc, bmInfo, pDIBData, backBrush, m_clientRect, clippedSize, CPoint(0, 0));
 		}
@@ -684,6 +684,13 @@ void CMainDlg::DisplayFileName(const CRect& imageProcessingArea, CDC& dc, double
 		CString sFileName = Helpers::GetFileInfoString(CSettingsProvider::This().FileNameFormat(), m_pCurrentImage, m_pFileList, realizedZoom);
 		HelpersGUI::DrawTextBordered(dc, sFileName, CRect(HelpersGUI::ScaleToScreen(2) + imageProcessingArea.left, 0, imageProcessingArea.right, HelpersGUI::ScaleToScreen(30)), DT_LEFT); 
 	}
+}
+
+void* CMainDlg::ConvertDIBForDisplay(CJPEGImage* pImage, void* pDIB, CSize dibSize) {
+	if (pImage == NULL || pDIB == NULL) {
+		return pDIB;
+	}
+	return m_pDisplayColorCache->Convert(pDIB, dibSize, pImage->DIBGeneration(), pImage->GetICCProfile());
 }
 
 LRESULT CMainDlg::OnMove(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, BOOL& bHandled) {

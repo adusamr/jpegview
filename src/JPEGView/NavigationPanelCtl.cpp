@@ -238,6 +238,8 @@ void CNavigationPanelCtl::DoNavPanelAnimation() {
 		CRect rectNavPanel = PanelRect();
 		CDC screenDC = m_pMainDlg->GetDC();
 		void* pDIBData = pCurrentImage->DIBPixelsLastProcessed(false);
+		// same DIB as painted by the main window - converted to the display color space there (cached)
+		pDIBData = m_pMainDlg->ConvertDIBForDisplay(pCurrentImage, pDIBData, CSize(pCurrentImage->DIBWidth(), pCurrentImage->DIBHeight()));
 		if (pDIBData != NULL) {
 			if (m_pMemDCAnimation == NULL) {
 				m_pMemDCAnimation = new CDC();

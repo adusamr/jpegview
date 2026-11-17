@@ -1522,7 +1522,9 @@ CJPEGImage* CJPEGImage::CreateThumbnailImage() {
 		nHeight = psiSize.cy;
 		pPixels = m_pLDC->GetPSImageAsDIB();
 	}
-	return new CJPEGImage(nWidth, nHeight, pPixels, NULL, 4, -1, IF_CLIPBOARD, false, 0, 1, 0, m_pLDC, true);
+	CJPEGImage* pThumbnail = new CJPEGImage(nWidth, nHeight, pPixels, NULL, 4, -1, IF_CLIPBOARD, false, 0, 1, 0, m_pLDC, true);
+	pThumbnail->SetICCProfile(m_pICCProfile); // the pixels are in the same color space
+	return pThumbnail;
 }
 
 void CJPEGImage::DrawGridLines(void * pDIB, const CSize& dibSize) {
