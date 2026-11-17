@@ -37,7 +37,7 @@ void CClipboard::CopyImageToClipboard(HWND hWnd, CJPEGImage * pImage, LPCTSTR fi
 	}
 
 	pImage->EnableDimming(false);
-	DoCopy(hWnd, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessed(true), pImage->IsClipboardImage() ? NULL : fileName);
+	DoCopy(hWnd, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessed(true), pImage->GetICCProfile(), pImage->IsClipboardImage() ? NULL : fileName);
 	pImage->EnableDimming(true);
 }
 
@@ -59,7 +59,7 @@ void CClipboard::CopyFullImageToClipboard(HWND hWnd, CJPEGImage * pImage, const 
 
 	pImage->EnableDimming(false);
 	void* pDIB = pImage->GetDIB(pImage->OrigSize(), clipRect.Size(), clipRect.TopLeft(), procParams, eFlags);
-	DoCopy(hWnd, clipRect.Width(), clipRect.Height(), pDIB, pImage->IsClipboardImage() ? NULL : fileName);
+	DoCopy(hWnd, clipRect.Width(), clipRect.Height(), pDIB, pImage->GetICCProfile(), pImage->IsClipboardImage() ? NULL : fileName);
 	pImage->EnableDimming(true);
 }
 
@@ -117,7 +117,7 @@ CJPEGImage* CClipboard::PasteImageFromClipboard(HWND hWnd, const CImageProcessin
 }
 
 
-void CClipboard::DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceImageDIB32, LPCTSTR fileName) {
+void CClipboard::DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceImageDIB32, const ICCProfilePtr& profile, LPCTSTR fileName) {
 	if (!::OpenClipboard(hWnd)) {
 		return;
 	}
@@ -150,6 +150,7 @@ void CClipboard::DoCopy(HWND hWnd, int nWidth, int nHeight, const void* pSourceI
 
 	uint8* pDIBPixelsTarget = (uint8*)pMemory + sizeof(BITMAPINFO) - sizeof(RGBQUAD);
 	CBasicProcessing::Convert32bppTo24bppDIB(nWidth, nHeight, pDIBPixelsTarget, pSourceImageDIB32, true);
+	ICCProfileTransform::ConvertToSRGB(profile, pDIBPixelsTarget, nWidth, nHeight, 3); // clipboard images are sRGB
 
 	::GlobalUnlock(hMem); 
 	::SetClipboardData(CF_DIB, hMem);

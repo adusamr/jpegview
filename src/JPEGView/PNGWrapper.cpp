@@ -5,6 +5,7 @@
 #ifndef WINXP
 #include "png.h"
 #include "MaxImageDef.h"
+#include "ICCProfileTransform.h"
 #include <stdexcept>
 
 // Uncomment to build without APNG support
@@ -328,6 +329,17 @@ void* PngReader::ReadImage(int& width,
 	void* pixels = ReadNextFrame(&exif, &exif_size);
 	if (pixels && read_two)
 		pixels = ReadNextFrame(&exif, &exif_size);
+
+	// Apply the embedded ICC profile (iCCP chunk), or keep it with the image (see ICCProfileTransform::CreateTransform())
+	png_charp icc_name = NULL;
+	int icc_compression = 0;
+	png_bytep icc_profile = NULL;
+	png_uint_32 icc_size = 0;
+	if (pixels && png_get_iCCP(cache.png_ptr, cache.info_ptr, &icc_name, &icc_compression, &icc_profile, &icc_size) == PNG_INFO_iCCP) {
+		void* transform = ICCProfileTransform::CreateTransform(icc_profile, icc_size, ICCProfileTransform::FORMAT_BGRA);
+		ICCProfileTransform::DoTransform(transform, pixels, pixels, cache.width, cache.height);
+		ICCProfileTransform::DeleteTransform(transform);
+	}
 	
 	width = cache.width;
 	height = cache.height;

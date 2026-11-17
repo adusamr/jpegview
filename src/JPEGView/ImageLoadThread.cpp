@@ -22,6 +22,8 @@
 #include "QOIWrapper.h"
 #include "PSDWrapper.h"
 #include "MaxImageDef.h"
+#include "ICCProfileTransform.h"
+#include <vector>
 
 
 using namespace Gdiplus;
@@ -117,6 +119,60 @@ static EImageFormat GetBitmapFormat(Gdiplus::Bitmap * pBitmap) {
 	}
 }
 
+// True if GDI+ shall apply embedded color profiles when loading. Not the case when the embedded profile is kept
+// with the image and applied when painting (ICCProfileTransform::KeepEmbeddedColorSpace()).
+static bool UseGDIPlusICM() {
+	return CSettingsProvider::This().UseEmbeddedColorProfiles() && !ICCProfileTransform::KeepEmbeddedColorSpace();
+}
+
+// Gets the embedded ICC profile of a GDI+ bitmap, empty if none
+static std::vector<unsigned char> GetGDIPlusICCProfile(Gdiplus::Bitmap* pBitmap) {
+	std::vector<unsigned char> profile;
+	UINT nSize = (pBitmap == NULL) ? 0 : pBitmap->GetPropertyItemSize(PropertyTagICCProfile);
+	if (nSize > sizeof(Gdiplus::PropertyItem)) {
+		std::vector<char> buffer(nSize);
+		Gdiplus::PropertyItem* pItem = (Gdiplus::PropertyItem*)buffer.data();
+		if (pBitmap->GetPropertyItem(PropertyTagICCProfile, nSize, pItem) == Gdiplus::Ok && pItem->value != NULL && pItem->length > 0) {
+			const unsigned char* pValue = (const unsigned char*)pItem->value;
+			profile.assign(pValue, pValue + pItem->length);
+		}
+	}
+	return profile;
+}
+
+// Extracts the ICC profile from the APP2 "ICC_PROFILE" markers of a JPEG stream (the profile may be split into several markers)
+static std::vector<unsigned char> GetJPEGICCProfile(const void* pBuffer, long long nSize) {
+	std::vector<unsigned char> profile;
+	const unsigned char* p = (const unsigned char*)pBuffer;
+	if (p == NULL || nSize < 4 || p[0] != 0xFF || p[1] != 0xD8) {
+		return profile;
+	}
+	std::vector<std::vector<unsigned char>> chunks;
+	long long i = 2;
+	while (i + 4 <= nSize && p[i] == 0xFF) {
+		unsigned char marker = p[i + 1];
+		if (marker == 0xFF) { i++; continue; } // fill byte
+		if (marker == 0xD9 || marker == 0xDA) break; // EOI or start of scan: no more APP markers
+		if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; } // markers without length
+		int nLength = (p[i + 2] << 8) | p[i + 3];
+		if (nLength < 2 || i + 2 + nLength > nSize) break;
+		if (marker == 0xE2 && nLength > 16 && memcmp(p + i + 4, "ICC_PROFILE\0", 12) == 0) {
+			int nSequence = p[i + 16];
+			int nCount = p[i + 17];
+			if (nCount > 0 && nSequence >= 1 && nSequence <= nCount) {
+				if (chunks.empty()) chunks.resize(nCount);
+				if ((int)chunks.size() == nCount) chunks[nSequence - 1].assign(p + i + 18, p + i + 2 + nLength);
+			}
+		}
+		i += 2 + nLength;
+	}
+	for (size_t n = 0; n < chunks.size(); n++) {
+		if (chunks[n].empty()) return std::vector<unsigned char>(); // incomplete
+		profile.insert(profile.end(), chunks[n].begin(), chunks[n].end());
+	}
+	return profile;
+}
+
 static CJPEGImage* ConvertGDIPlusBitmapToJPEGImage(Gdiplus::Bitmap* pBitmap, int nFrameIndex, void* pEXIFData, 
 	__int64 nJPEGHash, bool &isOutOfMemory, bool &isAnimatedGIF) {
 
@@ -139,6 +195,14 @@ static CJPEGImage* ConvertGDIPlusBitmapToJPEGImage(Gdiplus::Bitmap* pBitmap, int
 	}
 
 	EImageFormat eImageFormat = GetBitmapFormat(pBitmap);
+
+	// Keep the embedded RGB profile with the image if GDI+ did not apply it (see UseGDIPlusICM())
+	if (ICCProfileTransform::KeepEmbeddedColorSpace()) {
+		std::vector<unsigned char> profile = GetGDIPlusICCProfile(pBitmap);
+		if (!profile.empty()) {
+			ICCProfileTransform::CaptureProfile(profile.data(), (unsigned int)profile.size());
+		}
+	}
 
 	// Handle multiframe images.
 	// Note that only the first frame dimension is looked at, it is unclear if GDI+ anyway supports image formats with more dimensions
@@ -290,6 +354,7 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 
 	CRequest& rq = (CRequest&)request;
 	double dStartTime = Helpers::GetExactTickCount(); 
+	ICCProfileTransform::ResetCapturedProfile(); // set by the decoders if the embedded profile is kept with the image
 	// Get image format and read the image
 	switch (GetImageFormat(rq.FileName)) {
 		case IF_JPEG :
@@ -397,6 +462,19 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 	}
 	// then process the image if read was successful
 	if (rq.Image != NULL) {
+		// Attach the embedded profile if the pixels were kept in its color space (see ICCProfileTransform::KeepEmbeddedColorSpace())
+		ICCProfilePtr profile = ICCProfileTransform::GetCapturedProfile();
+		if (rq.Image->IsAnimation()) {
+			// decoders of animations read the profile only when decoding the first frame
+			if (profile != NULL) {
+				m_animationProfile = profile;
+				m_sAnimationProfileFile = rq.FileName;
+			} else if (rq.FileName == m_sAnimationProfileFile) {
+				profile = m_animationProfile;
+			}
+		}
+		rq.Image->SetICCProfile(profile);
+		ICCProfileTransform::ResetCapturedProfile();
 		rq.Image->SetLoadTickCount(Helpers::GetExactTickCount() - dStartTime); 
 		if (!ProcessImageAfterLoad(&rq)) {
 			delete rq.Image;
@@ -497,11 +575,25 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 		}
 		unsigned int nNumBytesRead;
 		if (::ReadFile(hFile, pBuffer, nFileSize, (LPDWORD) &nNumBytesRead, NULL) && nNumBytesRead == nFileSize) {
-			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || CSettingsProvider::This().UseEmbeddedColorProfiles();
+			// When the embedded profile is kept with the image and applied when painting (display color management),
+			// the fast TurboJPEG decoder can be used also with UseEmbeddedColorProfiles=true. Only images with profiles that
+			// are not RGB (e.g. CMYK or gray) are still read with GDI+ color management, which converts them to sRGB.
+			bool bProfileHandled = false;
+			if (ICCProfileTransform::KeepEmbeddedColorSpace()) {
+				std::vector<unsigned char> iccProfile = GetJPEGICCProfile(pBuffer, nFileSize);
+				if (iccProfile.empty()) {
+					bProfileHandled = true; // no profile: sRGB
+				} else if (ICCProfileTransform::IsRGBProfile(iccProfile.data(), (unsigned int)iccProfile.size())) {
+					ICCProfileTransform::CaptureProfile(iccProfile.data(), (unsigned int)iccProfile.size()); // not captured if sRGB
+					bProfileHandled = true;
+				}
+			}
+			bool bUseGDIPlusICM = CSettingsProvider::This().UseEmbeddedColorProfiles() && !bProfileHandled;
+			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || bUseGDIPlusICM;
 			if (bUseGDIPlus) {
 				IStream* pStream = NULL;
 				if (::CreateStreamOnHGlobal(hFileBuffer, FALSE, &pStream) == S_OK) {
-					Gdiplus::Bitmap* pBitmap = Gdiplus::Bitmap::FromStream(pStream, CSettingsProvider::This().UseEmbeddedColorProfiles());
+					Gdiplus::Bitmap* pBitmap = Gdiplus::Bitmap::FromStream(pStream, bUseGDIPlusICM);
 					bool isOutOfMemory, isAnimatedGIF;
 					request->Image = ConvertGDIPlusBitmapToJPEGImage(pBitmap, 0, Helpers::FindEXIFBlock(pBuffer, nFileSize),
 						Helpers::CalculateJPEGFileHash(pBuffer, nFileSize), isOutOfMemory, isAnimatedGIF);
@@ -698,8 +790,9 @@ void CImageLoadThread::ProcessReadPNGRequest(CRequest* request) {
 			void* pEXIFData = NULL;
 
 #ifndef WINXP
-			// If UseEmbeddedColorProfiles is true and the image isn't animated, we should use GDI+ for better color management
-			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || CSettingsProvider::This().UseEmbeddedColorProfiles();
+			// If UseEmbeddedColorProfiles is true and the image isn't animated, we should use GDI+ for better color management.
+			// Not needed when the embedded profile is kept with the image (libpng reads it, see PngReader).
+			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || UseGDIPlusICM();
 			if (bUseCachedDecoder || !bUseGDIPlus || PngReader::MustUseLibpng(pBuffer, nFileSize))
 				pPixelData = (uint8*)PngReader::ReadImage(nWidth, nHeight, nBPP, bHasAnimation, nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize);
 #endif
@@ -718,7 +811,7 @@ void CImageLoadThread::ProcessReadPNGRequest(CRequest* request) {
 				
 				IStream* pStream = NULL;
 				if (::CreateStreamOnHGlobal(hFileBuffer, FALSE, &pStream) == S_OK) {
-					Gdiplus::Bitmap* pBitmap = Gdiplus::Bitmap::FromStream(pStream, CSettingsProvider::This().UseEmbeddedColorProfiles());
+					Gdiplus::Bitmap* pBitmap = Gdiplus::Bitmap::FromStream(pStream, UseGDIPlusICM());
 					bool isOutOfMemory, isAnimatedGIF;
 					pEXIFData = PngReader::GetEXIFBlock(pBuffer, nFileSize);
 					request->Image = ConvertGDIPlusBitmapToJPEGImage(pBitmap, 0, pEXIFData, 0, isOutOfMemory, isAnimatedGIF);
@@ -1051,7 +1144,16 @@ void CImageLoadThread::ProcessReadGDIPlusRequest(CRequest * request) {
 		pBitmap = m_pLastBitmap;
 	} else {
 		DeleteCachedGDIBitmap();
-		m_pLastBitmap = pBitmap = new Gdiplus::Bitmap(sFileName, CSettingsProvider::This().UseEmbeddedColorProfiles());
+		m_pLastBitmap = pBitmap = new Gdiplus::Bitmap(sFileName, UseGDIPlusICM());
+		if (CSettingsProvider::This().UseEmbeddedColorProfiles() && !UseGDIPlusICM()) {
+			// The embedded profile is kept with the image, but only RGB profiles can be applied when painting.
+			// Let GDI+ convert images with other profiles (e.g. CMYK TIFF) to sRGB as before.
+			std::vector<unsigned char> profile = GetGDIPlusICCProfile(pBitmap);
+			if (!profile.empty() && !ICCProfileTransform::IsRGBProfile(profile.data(), (unsigned int)profile.size())) {
+				delete pBitmap;
+				m_pLastBitmap = pBitmap = new Gdiplus::Bitmap(sFileName, TRUE);
+			}
+		}
 		m_sLastFileName = sFileName;
 	}
 	bool isOutOfMemory, isAnimatedGIF;

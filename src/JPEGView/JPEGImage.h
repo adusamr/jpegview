@@ -1,6 +1,7 @@
 #pragma once
 
 #include "ProcessParams.h"
+#include "ICCProfileTransform.h"
 
 class CHistogram;
 class CLocalDensityCorr;
@@ -227,6 +228,13 @@ public:
 	// Same as DIBGeneration() for the DIB returned by the last GetThumbnailDIB() call
 	unsigned int ThumbnailDIBGeneration() const { return (m_pThumbnail == NULL) ? 0 : m_pThumbnail->DIBGeneration(); }
 
+	// Embedded ICC profile of the image if its pixels are kept in that color space instead of sRGB
+	// (see ICCProfileTransform::KeepEmbeddedColorSpace()), empty if the pixels are sRGB.
+	// All DIBs returned by this class are then in this color space and must be converted when they leave JPEGView
+	// (ICCProfileTransform::ConvertToSRGB()) or are painted (CDisplayColorDIBCache).
+	const ICCProfilePtr& GetICCProfile() const { return m_pICCProfile; }
+	void SetICCProfile(const ICCProfilePtr& profile) { m_pICCProfile = profile; }
+
 	// Gets the image processing flags as set as default (may varies from file to file)
 	EProcessingFlags GetInitialProcessFlags() const { return m_eProcFlagsInitial; }
 
@@ -393,6 +401,7 @@ private:
 	void* m_pDIBPixels;
 	void* m_pLastDIB; // one of the pointers above
 	unsigned int m_nDIBGeneration; // see DIBGeneration()
+	ICCProfilePtr m_pICCProfile; // see GetICCProfile()
 	bool m_bDIBRecomputed; // set when the content of the cached DIBs changed since the last generation update
 
 	// Cached gray and smoothed gray image for unsharp masking

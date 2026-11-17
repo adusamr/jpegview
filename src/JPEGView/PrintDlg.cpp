@@ -239,6 +239,9 @@ LRESULT CPrintDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, 
 
 	CPoint offset = CPoint(max(0, printableRect.left - imageRect.left), max(0, printableRect.top - imageRect.top));
 	void* pDIBData = m_pImage->GetThumbnailDIB(imageSize, clippedImageSize, offset, m_procParams, m_eProcessingFlags);
+	// preview is shown on the screen: convert to the color space of the display
+	static CDisplayColorDIBCache s_displayColorCache;
+	pDIBData = s_displayColorCache.Convert(pDIBData, clippedImageSize, m_pImage->ThumbnailDIBGeneration(), m_pImage->GetICCProfile());
 
 	dc.SelectStockPen(BLACK_PEN);
 

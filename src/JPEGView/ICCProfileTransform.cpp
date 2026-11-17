@@ -20,6 +20,8 @@ void* ICCProfileTransform::CreateTransform(const void* profile, unsigned int siz
 {
 	if (profile == NULL || size == 0)
 		return NULL; // No ICC Profile
+	if ((format == FORMAT_BGRA || format == FORMAT_RGBA || format == FORMAT_BGR || format == FORMAT_RGB) && CaptureProfile(profile, size))
+		return NULL; // pixels stay in the embedded color space, they are converted to the display when painted
 	if (sRGBProfile == NULL) {
 		try {
 			sRGBProfile = cmsCreate_sRGBProfile();
@@ -239,21 +241,30 @@ namespace {
 	}
 
 	// Reads the profile file (Unicode file names are supported, unlike cmsOpenProfileFromFile())
-	cmsHPROFILE OpenProfileFromFile(LPCTSTR sFileName) {
+	bool ReadProfileFile(LPCTSTR sFileName, std::vector<unsigned char>& data) {
+		data.clear();
 		HANDLE hFile = ::CreateFile(sFileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
-		if (hFile == INVALID_HANDLE_VALUE) return NULL;
-		cmsHPROFILE hProfile = NULL;
+		if (hFile == INVALID_HANDLE_VALUE) return false;
 		LARGE_INTEGER fileSize;
 		if (::GetFileSizeEx(hFile, &fileSize) && fileSize.QuadPart > 128 && fileSize.QuadPart < 64 * 1024 * 1024) {
-			std::vector<char> data((size_t)fileSize.QuadPart);
+			data.resize((size_t)fileSize.QuadPart);
 			DWORD nRead = 0;
-			if (::ReadFile(hFile, data.data(), (DWORD)data.size(), &nRead, NULL) && nRead == data.size()) {
-				hProfile = cmsOpenProfileFromMem(data.data(), nRead);
+			if (!::ReadFile(hFile, data.data(), (DWORD)data.size(), &nRead, NULL) || nRead != data.size()) {
+				data.clear();
 			}
 		}
 		::CloseHandle(hFile);
-		return hProfile;
+		return !data.empty();
 	}
+
+	bool IsDisplayColorManagementEnabled() {
+		CString sSetting = CSettingsProvider::This().DisplayColorProfile();
+		sSetting.Trim();
+		return !(sSetting.IsEmpty() || sSetting.CompareNoCase(_T("none")) == 0 || sSetting.CompareNoCase(_T("false")) == 0);
+	}
+
+	// Profile of the image currently being loaded on this thread, see ICCProfileTransform::CaptureProfile()
+	thread_local ICCProfilePtr t_capturedProfile;
 
 	// True if the profile is (most likely) a standard sRGB profile - then no transform is needed
 	bool IsSRGBProfile(cmsHPROFILE hProfile, const CString& sPath) {
@@ -280,7 +291,130 @@ namespace {
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// Embedded profiles kept with the image (not converted to sRGB when loading)
+///////////////////////////////////////////////////////////////////////////////////
+
+bool ICCProfileTransform::KeepEmbeddedColorSpace() {
+	static volatile int s_nKeep = -1; // evaluated once, the settings do not change at runtime
+	if (s_nKeep < 0) {
+		bool bKeep = CSettingsProvider::This().UseEmbeddedColorProfiles() && IsDisplayColorManagementEnabled();
+		if (bKeep) {
+			// requires lcms2.dll
+			try {
+				cmsHPROFILE hTest = cmsCreate_sRGBProfile();
+				bKeep = hTest != NULL;
+				if (hTest != NULL) cmsCloseProfile(hTest);
+			} catch (...) {
+				bKeep = false;
+			}
+		}
+		s_nKeep = bKeep ? 1 : 0;
+	}
+	return s_nKeep == 1;
+}
+
+void ICCProfileTransform::ResetCapturedProfile() {
+	t_capturedProfile.reset();
+}
+
+ICCProfilePtr ICCProfileTransform::GetCapturedProfile() {
+	return t_capturedProfile;
+}
+
+void ICCProfileTransform::SetCapturedProfile(const ICCProfilePtr& profile) {
+	t_capturedProfile = profile;
+}
+
+bool ICCProfileTransform::CaptureProfile(const void* profile, unsigned int size) {
+	if (!KeepEmbeddedColorSpace() || profile == NULL || size < 128) {
+		return false;
+	}
+	bool bCapture = false;
+	try {
+		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile, size);
+		if (hProfile != NULL) {
+			// sRGB profiles are not kept - these images are handled like images without profile
+			bCapture = cmsGetColorSpace(hProfile) == cmsSigRgbData && !IsSRGBProfile(hProfile, CString());
+			if (bCapture) {
+				// make sure lcms can use the profile, else convert as before (or show unconverted)
+				cmsHPROFILE hSRGB = cmsCreate_sRGBProfile();
+				cmsHTRANSFORM hTest = (hSRGB == NULL) ? NULL : cmsCreateTransform(hProfile, TYPE_BGRA_8, hSRGB, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, cmsFLAGS_BLACKPOINTCOMPENSATION);
+				bCapture = hTest != NULL;
+				if (hTest != NULL) cmsDeleteTransform(hTest);
+				if (hSRGB != NULL) cmsCloseProfile(hSRGB);
+			}
+			cmsCloseProfile(hProfile);
+		}
+	} catch (...) {
+		bCapture = false;
+	}
+	if (bCapture) {
+		const unsigned char* pBytes = (const unsigned char*)profile;
+		t_capturedProfile = std::make_shared<const std::vector<unsigned char>>(pBytes, pBytes + size);
+	}
+	return bCapture;
+}
+
+bool ICCProfileTransform::IsRGBProfile(const void* profile, unsigned int size) {
+	if (profile == NULL || size < 128) return false;
+	bool bRGB = false;
+	try {
+		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile, size);
+		if (hProfile != NULL) {
+			bRGB = cmsGetColorSpace(hProfile) == cmsSigRgbData;
+			cmsCloseProfile(hProfile);
+		}
+	} catch (...) {}
+	return bRGB;
+}
+
+bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& profile, void* pixels, int width, int height, int bytesPerPixel) {
+	if (profile == NULL || profile->empty() || pixels == NULL || width <= 0 || height <= 0 || (bytesPerPixel != 3 && bytesPerPixel != 4)) {
+		return false;
+	}
+	bool bOk = false;
+	try {
+		cmsHPROFILE hIn = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+		cmsHPROFILE hOut = cmsCreate_sRGBProfile();
+		if (hIn != NULL && hOut != NULL) {
+			cmsUInt32Number format = (bytesPerPixel == 4) ? TYPE_BGRA_8 : TYPE_BGR_8;
+			cmsUInt32Number flags = cmsFLAGS_BLACKPOINTCOMPENSATION | ((bytesPerPixel == 4) ? cmsFLAGS_COPY_ALPHA : 0);
+			cmsHTRANSFORM transform = cmsCreateTransform(hIn, format, hOut, format, INTENT_RELATIVE_COLORIMETRIC, flags);
+			if (transform != NULL) {
+				cmsUInt32Number stride = (bytesPerPixel == 4) ? width * 4 : Helpers::DoPadding(width * 3, 4);
+				cmsDoTransformLineStride(transform, pixels, pixels, width, height, stride, stride, stride * height, stride * height);
+				cmsDeleteTransform(transform);
+				bOk = true;
+			}
+		}
+		if (hIn != NULL) cmsCloseProfile(hIn);
+		if (hOut != NULL) cmsCloseProfile(hOut);
+	} catch (...) {}
+	return bOk;
+}
+
+CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& profile) {
+	CString sName;
+	if (profile == NULL || profile->empty()) return sName;
+	try {
+		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+		if (hProfile != NULL) {
+			sName = GetProfileDisplayName(hProfile, CString());
+			cmsCloseProfile(hProfile);
+		}
+	} catch (...) {}
+	return sName;
+}
+
+///////////////////////////////////////////////////////////////////////////////////
+// CDisplayColorProfile
+///////////////////////////////////////////////////////////////////////////////////
+
 void* CDisplayColorProfile::sm_transform = NULL;
+std::vector<unsigned char> CDisplayColorProfile::sm_displayProfile;
+bool CDisplayColorProfile::sm_bEnabled = false;
+std::vector<CDisplayColorProfile::EmbeddedTransform> CDisplayColorProfile::sm_embeddedTransforms;
 HMONITOR CDisplayColorProfile::sm_hMonitor = NULL;
 bool CDisplayColorProfile::sm_bValid = false;
 unsigned int CDisplayColorProfile::sm_nTransformGeneration = 1;
@@ -311,11 +445,57 @@ bool CDisplayColorProfile::IsActive() {
 	return sm_transform != NULL;
 }
 
-bool CDisplayColorProfile::Apply(const void* pSource, void* pTarget, int nWidth, int nHeight) {
-	if (sm_transform == NULL || pSource == NULL || pTarget == NULL || nWidth <= 0 || nHeight <= 0) {
+void* CDisplayColorProfile::GetTransform(const ICCProfilePtr& profile) {
+	if (profile == NULL || profile->empty()) {
+		return sm_transform; // image pixels are sRGB
+	}
+	if (!sm_bEnabled) {
+		return NULL;
+	}
+	for (size_t i = 0; i < sm_embeddedTransforms.size(); i++) {
+		const ICCProfilePtr& cached = sm_embeddedTransforms[i].profile;
+		if (cached == profile || *cached == *profile) {
+			return sm_embeddedTransforms[i].transform;
+		}
+	}
+
+	// Embedded profile to display profile, or to sRGB if the display is sRGB (or color managed by Windows)
+	cmsHTRANSFORM transform = NULL;
+	try {
+		cmsHPROFILE hIn = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+		cmsHPROFILE hOut = sm_displayProfile.empty() ? cmsCreate_sRGBProfile() :
+			cmsOpenProfileFromMem(sm_displayProfile.data(), (cmsUInt32Number)sm_displayProfile.size());
+		if (hIn != NULL && hOut != NULL) {
+			// cmsFLAGS_NOCACHE: the transform is used on several threads in parallel
+			cmsUInt32Number flags = cmsFLAGS_BLACKPOINTCOMPENSATION | cmsFLAGS_COPY_ALPHA | cmsFLAGS_NOCACHE;
+			transform = cmsCreateTransform(hIn, TYPE_BGRA_8, hOut, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, flags);
+		}
+		if (hIn != NULL) cmsCloseProfile(hIn);
+		if (hOut != NULL) cmsCloseProfile(hOut);
+	} catch (...) {
+		transform = NULL;
+	}
+
+	const size_t cnMaxCachedTransforms = 8;
+	if (sm_embeddedTransforms.size() >= cnMaxCachedTransforms) {
+		if (sm_embeddedTransforms.front().transform != NULL) {
+			cmsDeleteTransform(sm_embeddedTransforms.front().transform);
+		}
+		sm_embeddedTransforms.erase(sm_embeddedTransforms.begin());
+		sm_nTransformGeneration++; // a deleted transform must not be mistaken for a new one at the same address
+	}
+	EmbeddedTransform entry;
+	entry.profile = profile;
+	entry.transform = transform; // also cache failures to not retry on every paint
+	sm_embeddedTransforms.push_back(entry);
+	return transform;
+}
+
+bool CDisplayColorProfile::Apply(void* transform, const void* pSource, void* pTarget, int nWidth, int nHeight) {
+	if (transform == NULL || pSource == NULL || pTarget == NULL || nWidth <= 0 || nHeight <= 0) {
 		return false;
 	}
-	CDisplayTransformRequest request(sm_transform, pSource, pTarget, CSize(nWidth, nHeight));
+	CDisplayTransformRequest request(transform, pSource, pTarget, CSize(nWidth, nHeight));
 	return CProcessingThreadPool::This().Process(&request);
 }
 
@@ -324,15 +504,26 @@ void CDisplayColorProfile::DeleteDisplayTransform() {
 		cmsDeleteTransform(sm_transform);
 		sm_transform = NULL;
 	}
+	for (size_t i = 0; i < sm_embeddedTransforms.size(); i++) {
+		if (sm_embeddedTransforms[i].transform != NULL) {
+			cmsDeleteTransform(sm_embeddedTransforms[i].transform);
+		}
+	}
+	sm_embeddedTransforms.clear();
+	sm_displayProfile.clear();
+	sm_bEnabled = false;
 	sm_sProfileName.Empty();
 }
 
 void CDisplayColorProfile::CreateDisplayTransform(HMONITOR hMonitor) {
-	CString sSetting = CSettingsProvider::This().DisplayColorProfile();
-	sSetting.Trim();
-	if (sSetting.IsEmpty() || sSetting.CompareNoCase(_T("none")) == 0 || sSetting.CompareNoCase(_T("false")) == 0) {
+	if (!IsDisplayColorManagementEnabled()) {
 		return; // display color management disabled
 	}
+	// From here on the display is treated as sRGB unless a usable display profile is found:
+	// images with embedded profiles are then converted to sRGB when painted
+	sm_bEnabled = true;
+	CString sSetting = CSettingsProvider::This().DisplayColorProfile();
+	sSetting.Trim();
 
 	MONITORINFOEX monitorInfo;
 	memset(&monitorInfo, 0, sizeof(monitorInfo));
@@ -358,15 +549,19 @@ void CDisplayColorProfile::CreateDisplayTransform(HMONITOR hMonitor) {
 		}
 	}
 
+	std::vector<unsigned char> profileData;
+	if (!ReadProfileFile(sProfilePath, profileData)) {
+		return; // profile not found
+	}
 	cmsHPROFILE hDisplayProfile = NULL;
 	cmsHPROFILE hSRGBProfile = NULL;
 	try {
-		hDisplayProfile = OpenProfileFromFile(sProfilePath);
+		hDisplayProfile = cmsOpenProfileFromMem(profileData.data(), (cmsUInt32Number)profileData.size());
 		if (hDisplayProfile == NULL) {
-			return; // profile not found or invalid
+			return; // invalid profile
 		}
 		if (cmsGetColorSpace(hDisplayProfile) != cmsSigRgbData || IsSRGBProfile(hDisplayProfile, sProfilePath)) {
-			// not usable as display profile or identity transform - nothing to do
+			// not usable as display profile or identity transform for sRGB images
 			cmsCloseProfile(hDisplayProfile);
 			return;
 		}
@@ -377,6 +572,7 @@ void CDisplayColorProfile::CreateDisplayTransform(HMONITOR hMonitor) {
 			sm_transform = cmsCreateTransform(hSRGBProfile, TYPE_BGRA_8, hDisplayProfile, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, flags);
 			if (sm_transform != NULL) {
 				sm_sProfileName = GetProfileDisplayName(hDisplayProfile, sProfilePath);
+				sm_displayProfile.swap(profileData);
 			}
 			cmsCloseProfile(hSRGBProfile);
 		}
@@ -384,6 +580,7 @@ void CDisplayColorProfile::CreateDisplayTransform(HMONITOR hMonitor) {
 	} catch (...) {
 		// lcms2.dll not found
 		sm_transform = NULL;
+		sm_bEnabled = false;
 	}
 }
 
@@ -405,7 +602,19 @@ void* ICCProfileTransform::CreateLabTransform(PixelFormat /* format */) {
 	return NULL;
 }
 
+bool ICCProfileTransform::KeepEmbeddedColorSpace() { return false; }
+void ICCProfileTransform::ResetCapturedProfile() { }
+ICCProfilePtr ICCProfileTransform::GetCapturedProfile() { return ICCProfilePtr(); }
+void ICCProfileTransform::SetCapturedProfile(const ICCProfilePtr& /* profile */) { }
+bool ICCProfileTransform::CaptureProfile(const void* /* profile */, unsigned int /* size */) { return false; }
+bool ICCProfileTransform::IsRGBProfile(const void* /* profile */, unsigned int /* size */) { return false; }
+bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& /* profile */, void* /* pixels */, int /* width */, int /* height */, int /* bytesPerPixel */) { return false; }
+CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& /* profile */) { return CString(); }
+
 void* CDisplayColorProfile::sm_transform = NULL;
+std::vector<unsigned char> CDisplayColorProfile::sm_displayProfile;
+bool CDisplayColorProfile::sm_bEnabled = false;
+std::vector<CDisplayColorProfile::EmbeddedTransform> CDisplayColorProfile::sm_embeddedTransforms;
 HMONITOR CDisplayColorProfile::sm_hMonitor = NULL;
 bool CDisplayColorProfile::sm_bValid = false;
 unsigned int CDisplayColorProfile::sm_nTransformGeneration = 1;
@@ -414,7 +623,8 @@ CString CDisplayColorProfile::sm_sProfileName;
 bool CDisplayColorProfile::Update(HWND /* hWnd */) { return false; }
 void CDisplayColorProfile::Invalidate() { }
 bool CDisplayColorProfile::IsActive() { return false; }
-bool CDisplayColorProfile::Apply(const void* /* pSource */, void* /* pTarget */, int /* nWidth */, int /* nHeight */) { return false; }
+void* CDisplayColorProfile::GetTransform(const ICCProfilePtr& /* profile */) { return NULL; }
+bool CDisplayColorProfile::Apply(void* /* transform */, const void* /* pSource */, void* /* pTarget */, int /* nWidth */, int /* nHeight */) { return false; }
 void CDisplayColorProfile::DeleteDisplayTransform() { }
 void CDisplayColorProfile::CreateDisplayTransform(HMONITOR /* hMonitor */) { }
 
@@ -429,6 +639,7 @@ CDisplayColorDIBCache::CDisplayColorDIBCache() {
 	m_size = CSize(0, 0);
 	m_nDIBGeneration = 0;
 	m_nTransformGeneration = 0;
+	m_pTransform = NULL;
 	m_pConverted = NULL;
 	m_nAllocatedPixels = 0;
 }
@@ -444,13 +655,14 @@ void CDisplayColorDIBCache::Clear() {
 	m_pSourceDIB = NULL;
 }
 
-void* CDisplayColorDIBCache::Convert(void* pDIB, CSize dibSize, unsigned int nDIBGeneration) {
-	if (pDIB == NULL || !CDisplayColorProfile::IsActive() || dibSize.cx <= 0 || dibSize.cy <= 0) {
+void* CDisplayColorDIBCache::Convert(void* pDIB, CSize dibSize, unsigned int nDIBGeneration, const ICCProfilePtr& profile) {
+	void* transform = (pDIB == NULL) ? NULL : CDisplayColorProfile::GetTransform(profile);
+	if (transform == NULL || dibSize.cx <= 0 || dibSize.cy <= 0) {
 		if (m_pConverted != NULL) Clear();
 		return pDIB;
 	}
 	unsigned int nTransformGeneration = CDisplayColorProfile::TransformGeneration();
-	if (m_pConverted != NULL && pDIB == m_pSourceDIB && dibSize == m_size &&
+	if (m_pConverted != NULL && pDIB == m_pSourceDIB && dibSize == m_size && transform == m_pTransform &&
 		nDIBGeneration == m_nDIBGeneration && nTransformGeneration == m_nTransformGeneration) {
 		return m_pConverted; // up to date
 	}
@@ -461,7 +673,7 @@ void* CDisplayColorDIBCache::Convert(void* pDIB, CSize dibSize, unsigned int nDI
 		m_pConverted = new(std::nothrow) unsigned int[nPixels];
 		m_nAllocatedPixels = (m_pConverted == NULL) ? 0 : nPixels;
 	}
-	if (m_pConverted == NULL || !CDisplayColorProfile::Apply(pDIB, m_pConverted, dibSize.cx, dibSize.cy)) {
+	if (m_pConverted == NULL || !CDisplayColorProfile::Apply(transform, pDIB, m_pConverted, dibSize.cx, dibSize.cy)) {
 		Clear();
 		return pDIB; // out of memory or transform failed - show unconverted pixels
 	}
@@ -469,5 +681,6 @@ void* CDisplayColorDIBCache::Convert(void* pDIB, CSize dibSize, unsigned int nDI
 	m_size = dibSize;
 	m_nDIBGeneration = nDIBGeneration;
 	m_nTransformGeneration = nTransformGeneration;
+	m_pTransform = transform;
 	return m_pConverted;
 }

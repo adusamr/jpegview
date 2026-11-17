@@ -123,6 +123,7 @@ static void* GetThumbnailDIB(CJPEGImage * pImage, CSize& sizeThumb) {
 	uint32 nSizeBytes = nSizeLinePadded*sizeThumb.cy;
 	char* pDIB24bpp = new char[nSizeBytes];
 	CBasicProcessing::Convert32bppTo24bppDIB(sizeThumb.cx, sizeThumb.cy, pDIB24bpp, pDIB32bpp, false);
+	ICCProfileTransform::ConvertToSRGB(pImage->GetICCProfile(), pDIB24bpp, sizeThumb.cx, sizeThumb.cy, 3); // saved images are sRGB
 	return pDIB24bpp;
 }
 
@@ -374,6 +375,8 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 	uint32 nSizeBytes = nSizeLinePadded*imageSize.cy;
 	char* pDIB24bpp = new char[nSizeBytes];
 	CBasicProcessing::Convert32bppTo24bppDIB(imageSize.cx, imageSize.cy, pDIB24bpp, pDIB32bpp, false);
+	// Pixels kept in the color space of an embedded profile are converted to sRGB, the saved image has no profile
+	bool bConvertedToSRGB = ICCProfileTransform::ConvertToSRGB(pImage->GetICCProfile(), pDIB24bpp, imageSize.cx, imageSize.cy, 3);
 
 	EImageFormat eFileFormat = Helpers::GetImageFormat(sFileName);
 	bool bSuccess = false;
@@ -401,10 +404,17 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 		} else {
 			bSuccess = SaveGDIPlus(sFileName, eFileFormat, pDIB24bpp, imageSize.cx, imageSize.cy);
 		}
-		if (bSuccess) {
+		if (bSuccess && !bConvertedToSRGB) {
 			CJPEGImage tempImage(imageSize.cx, imageSize.cy, pDIB32bpp, NULL, 4, 0, IF_Unknown, false, 0, 1, 0);
 			nPixelHash = tempImage.GetUncompressedPixelHash();
 			tempImage.DetachOriginalPixels();
+		} else if (bSuccess) {
+			// hash of the saved (sRGB) pixels, as they are read when the saved file is opened
+			void* pSavedDIB32bpp = CBasicProcessing::Convert3To4Channels(imageSize.cx, imageSize.cy, pDIB24bpp);
+			if (pSavedDIB32bpp != NULL) {
+				CJPEGImage tempImage(imageSize.cx, imageSize.cy, pSavedDIB32bpp, NULL, 4, 0, IF_Unknown, false, 0, 1, 0);
+				nPixelHash = tempImage.GetUncompressedPixelHash();
+			}
 		}
 	}
 
