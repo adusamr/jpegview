@@ -3,6 +3,7 @@
 #include "JPEGImage.h"
 #include "Helpers.h"
 #include "HelpersGUI.h"
+#include "ICCProfileTransform.h"
 #include <math.h>
 
 // in 96 DPI
@@ -76,8 +77,10 @@ void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRec
 		pImage->GetThumbnailDIBTrapezoid(navigatorRect.Size(), processingParams, eFlags, *pTrapezoid) :
 		pImage->GetThumbnailDIB(navigatorRect.Size(), processingParams, eFlags);
 
-	// Paint the DIB
+	// Paint the DIB, converted to the color space of the display
 	if (pDIBData != NULL) {
+		static CDisplayColorDIBCache s_displayColorCache;
+		pDIBData = s_displayColorCache.Convert(pDIBData, navigatorRect.Size(), pImage->ThumbnailDIBGeneration());
 		int xDest = navigatorRect.left;
 		int yDest = navigatorRect.top;
 		int xSize = navigatorRect.Width();
