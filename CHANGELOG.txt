@@ -1,7 +1,11 @@
 JPEGView Changelog
 ******************
 
-[Unreleased]
+[26.11.0] (not released yet)
+First release of the adusamr/jpegview fork. Version numbers are now YY.MM.N (year, month, release number in that
+month) and independent of the 1.x numbering of sylikc/jpegview. This release contains all changes made in
+sylikc/jpegview after 1.3.46, which were not released there, marked "(upstream)" below.
+
 New features:
 - Display color profile support (color management for wide gamut and calibrated monitors)
   The displayed image is converted from sRGB to the ICC profile of the monitor the window is on, as assigned in
@@ -13,8 +17,43 @@ New features:
 - Wide gamut images: with UseEmbeddedColorProfiles=true and display color management on, images with an embedded RGB
   profile keep their pixel values and are converted directly from the embedded profile to the display profile when
   painted, so colors outside of sRGB are no longer clipped. They are converted to sRGB when saved, copied or printed.
-  JPEG images are then read with TurboJPEG (fast) instead of GDI+.
 - PNG: embedded ICC profiles (iCCP) are now read with libpng, also for animated PNG
+- (upstream) PSB (Photoshop Large Document Format) support, up to 300,000 pixels on either edge
+  thanks qbnu (GH https://github.com/qbnu)
+- (upstream) AVIF lossless transformations: crop, rotate, mirror
+  thanks qbnu (GH https://github.com/qbnu)
+- (upstream) EXIF data shown for non-animated PNGs also when "ForceGDIPlus" or "UseEmbeddedColorProfiles" is true
+  thanks qbnu (GH https://github.com/qbnu)
+- (upstream) Alpha channel support for Lab PSDs and improved PSD alpha channel detection
+  PR #247, thanks qbnu (GH https://github.com/qbnu)
+- (upstream) Add .jfif to the supported file extensions
+  thanks qbnu (GH https://github.com/qbnu)
+- (upstream) Very large images: files larger than 4 GiB, JPEGs over 2^30 pixels and GDI+ bitmaps larger than INT_MAX bytes
+  can be opened. On x64 the pixel limit is now MAX_IMAGE_DIMENSIONS squared.
+  thanks qbnu (GH https://github.com/qbnu) and KrokusPokus (GH https://github.com/KrokusPokus)
+- (upstream) DisplayFullsizeRAW=2: the embedded thumbnail is tried with dcraw before decoding the full size image
+  thanks qbnu (GH https://github.com/qbnu)
+Bugs fixed:
+- (upstream) EXIF data lost on lossless JPEG transformations
+- (upstream) Some animated AVIF files were mistaken as HEIF, causing rendering problems
+- (upstream) HEIF/AVIF images could be rotated twice: the EXIF orientation is now ignored (the decoder already applies it)
+- (upstream) CR3 file detection, K25 RAW decoding
+- (upstream) PSD: image resource names (Pascal strings) are skipped properly, scan lines use byte counts
+- (upstream) Possible crash on very large images
+- (upstream) Strict AVIF decoding disabled, so more AVIF files can be opened
+- (upstream) Renamed setting "OverwriteOriginalFileWithoutSaveDialog" now used in all INI files
+Changed behavior:
+- With display color management on, "UseEmbeddedColorProfiles"=true no longer forces GDI+ for JPEG images:
+  JPEGs are decoded with TurboJPEG (fast). Images with CMYK or gray profiles are still converted by GDI+.
+Other changes:
+- (upstream) JPEG decoding and encoding use the libjpeg-turbo TJ3 API, unknown chroma subsampling is rejected
+  thanks qbnu (GH https://github.com/qbnu)
+- (upstream) Removed the outdated VS2010 and VS2013 solution files
+- GitHub Actions: builds use windows-2022 / Visual Studio 2022 (toolset v143), as the windows-2019 runners were retired.
+  Installers are built for the "main" branch. The "rebuild all dependencies" workflow only runs when started manually.
+Localization updates:
+- (upstream) Updated Russian translation, thanks Dmitry Yerokhin
+- (upstream) Updated Japanese translation, thanks maboroshin (GH https://github.com/maboroshin)
 
 [1.3.46] 2023-10-07
 New features:

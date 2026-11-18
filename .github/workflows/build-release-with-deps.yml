@@ -6,11 +6,12 @@ on:
   #push:
   # run this action when kicked off manually
   workflow_dispatch:
-  # when a tag or branch created
-  create:
-  # published releases get checked
-  release:
-    types: [published]
+  # Automatic runs on branch/tag creation and published releases are disabled in this fork:
+  # the dependency build scripts (extras/scripts) still target Visual Studio 2019, which is not on GitHub's runners.
+  # Releases use the prebuilt libraries in the repository, like the regular builds.
+  #create:
+  #release:
+  #  types: [published]
 
 jobs:
   call-workflow-build-win32:

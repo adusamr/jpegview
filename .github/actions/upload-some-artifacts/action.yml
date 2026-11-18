@@ -6,7 +6,8 @@ inputs:
   branch-match:
     description: branch to match to get all artifacts, or only some
     required: false
-    default: master
+    # releases of this fork are made from main (master tracks upstream)
+    default: main
 
   platform-arch:
     description: The architecture for naming artifact
@@ -32,7 +33,7 @@ runs:
         rm */*/WICLoader.lib
         rm */*/WICLoader.pdb
     - name: Upload No-Install Outputs Only
-      # if not master branch, only upload the extract-and-run artifact
+      # if not the release branch, only upload the extract-and-run artifact
       if: github.ref_name != inputs.branch-match
       uses: actions/upload-artifact@v4
       with:
@@ -42,7 +43,7 @@ runs:
 
     - name: Upload All Outputs
       # reduce the ambiguous versions of installers in the wild
-      # by only including the installer for master branch
+      # by only including the installer for the release branch
       if: github.ref_name == inputs.branch-match
       uses: actions/upload-artifact@v4
       with:
