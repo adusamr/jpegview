@@ -635,7 +635,7 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 				if (pPixelData != NULL && (nBPP == 3 || nBPP == 1)) {
 					if (pTransformToSRGB != NULL && nBPP == 3) {
 						// TurboJPEG returns BGR rows padded to 4 bytes, converted in place
-						ICCProfileTransform::DoTransform(pTransformToSRGB, pPixelData, pPixelData, nWidth, nHeight, TJPAD(nWidth * 3));
+						ICCProfileTransform::DoTransform(pTransformToSRGB, pPixelData, pPixelData, nWidth, nHeight, Helpers::DoPadding(nWidth * 3, 4));
 					}
 					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, 
 						Helpers::FindEXIFBlock(pBuffer, nFileSize), nBPP, 
