@@ -298,17 +298,7 @@ namespace {
 bool ICCProfileTransform::KeepEmbeddedColorSpace() {
 	static volatile int s_nKeep = -1; // evaluated once, the settings do not change at runtime
 	if (s_nKeep < 0) {
-		bool bKeep = CSettingsProvider::This().UseEmbeddedColorProfiles() && IsDisplayColorManagementEnabled();
-		if (bKeep) {
-			// requires lcms2.dll
-			try {
-				cmsHPROFILE hTest = cmsCreate_sRGBProfile();
-				bKeep = hTest != NULL;
-				if (hTest != NULL) cmsCloseProfile(hTest);
-			} catch (...) {
-				bKeep = false;
-			}
-		}
+		bool bKeep = CSettingsProvider::This().UseEmbeddedColorProfiles() && IsDisplayColorManagementEnabled() && IsAvailable();
 		s_nKeep = bKeep ? 1 : 0;
 	}
 	return s_nKeep == 1;
@@ -335,7 +325,7 @@ bool ICCProfileTransform::CaptureProfile(const void* profile, unsigned int size)
 		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile, size);
 		if (hProfile != NULL) {
 			// sRGB profiles are not kept - these images are handled like images without profile
-			bCapture = cmsGetColorSpace(hProfile) == cmsSigRgbData && !IsSRGBProfile(hProfile, CString());
+			bCapture = cmsGetColorSpace(hProfile) == cmsSigRgbData && !::IsSRGBProfile(hProfile, CString());
 			if (bCapture) {
 				// make sure lcms can use the profile, else convert as before (or show unconverted)
 				cmsHPROFILE hSRGB = cmsCreate_sRGBProfile();
@@ -367,6 +357,35 @@ bool ICCProfileTransform::IsRGBProfile(const void* profile, unsigned int size) {
 		}
 	} catch (...) {}
 	return bRGB;
+}
+
+bool ICCProfileTransform::IsSRGBProfile(const void* profile, unsigned int size) {
+	if (profile == NULL || size < 128) return false;
+	bool bSRGB = false;
+	try {
+		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile, size);
+		if (hProfile != NULL) {
+			bSRGB = cmsGetColorSpace(hProfile) == cmsSigRgbData && ::IsSRGBProfile(hProfile, CString());
+			cmsCloseProfile(hProfile);
+		}
+	} catch (...) {}
+	return bSRGB;
+}
+
+bool ICCProfileTransform::IsAvailable() {
+	static volatile int s_nAvailable = -1; // lcms2.dll is checked once
+	if (s_nAvailable < 0) {
+		bool bAvailable = false;
+		try {
+			cmsHPROFILE hTest = cmsCreate_sRGBProfile();
+			bAvailable = hTest != NULL;
+			if (hTest != NULL) cmsCloseProfile(hTest);
+		} catch (...) {
+			bAvailable = false;
+		}
+		s_nAvailable = bAvailable ? 1 : 0;
+	}
+	return s_nAvailable == 1;
 }
 
 bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& profile, void* pixels, int width, int height, int bytesPerPixel) {
@@ -608,6 +627,8 @@ ICCProfilePtr ICCProfileTransform::GetCapturedProfile() { return ICCProfilePtr()
 void ICCProfileTransform::SetCapturedProfile(const ICCProfilePtr& /* profile */) { }
 bool ICCProfileTransform::CaptureProfile(const void* /* profile */, unsigned int /* size */) { return false; }
 bool ICCProfileTransform::IsRGBProfile(const void* /* profile */, unsigned int /* size */) { return false; }
+bool ICCProfileTransform::IsSRGBProfile(const void* /* profile */, unsigned int /* size */) { return false; }
+bool ICCProfileTransform::IsAvailable() { return false; }
 bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& /* profile */, void* /* pixels */, int /* width */, int /* height */, int /* bytesPerPixel */) { return false; }
 CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& /* profile */) { return CString(); }
 

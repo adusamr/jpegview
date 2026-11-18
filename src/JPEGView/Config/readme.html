@@ -1179,8 +1179,7 @@
             By default, JPEGView uses the color profiles embedded in images. Make sure the following key is not set to false
             in the INI file (also check the user INI file in %APPDATA%\JPEGView): <br />
             UseEmbeddedColorProfiles=true<br />
-            If display color management is switched off (DisplayColorProfile=none), using embedded profiles slows down loading
-            of JPEG images considerably, because JPEGView then reads JPEG images with GDI+ instead of the optimized TJPEG library.
+            Using embedded profiles does not slow down loading of JPEG and PNG images.
             <br /><br />
 
             <b>Colors look oversaturated or wrong on a wide gamut or calibrated monitor</b><br />

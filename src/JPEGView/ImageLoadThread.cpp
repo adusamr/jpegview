@@ -575,20 +575,30 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 		}
 		unsigned int nNumBytesRead;
 		if (::ReadFile(hFile, pBuffer, nFileSize, (LPDWORD) &nNumBytesRead, NULL) && nNumBytesRead == nFileSize) {
-			// When the embedded profile is kept with the image and applied when painting (display color management),
-			// the fast TurboJPEG decoder can be used also with UseEmbeddedColorProfiles=true. Only images with profiles that
-			// are not RGB (e.g. CMYK or gray) are still read with GDI+ color management, which converts them to sRGB.
-			bool bProfileHandled = false;
-			if (ICCProfileTransform::KeepEmbeddedColorSpace()) {
+			// With UseEmbeddedColorProfiles=true, an embedded RGB profile is handled by JPEGView itself, so the fast TurboJPEG
+			// decoder can be used: either the profile is kept with the image and applied when painting (display color
+			// management), or the decoded pixels are converted to sRGB with lcms2. Only images with profiles that are not RGB
+			// (e.g. CMYK or gray), or if lcms2 is not available, are read with GDI+ color management.
+			bool bKeepColorSpace = ICCProfileTransform::KeepEmbeddedColorSpace();
+			bool bProfileHandled = true;
+			void* pTransformToSRGB = NULL; // embedded profile to sRGB, applied after decoding with TurboJPEG
+			if (CSettingsProvider::This().UseEmbeddedColorProfiles()) {
 				std::vector<unsigned char> iccProfile = GetJPEGICCProfile(pBuffer, nFileSize);
+				unsigned int nProfileSize = (unsigned int)iccProfile.size();
 				if (iccProfile.empty()) {
-					bProfileHandled = true; // no profile: sRGB
-				} else if (ICCProfileTransform::IsRGBProfile(iccProfile.data(), (unsigned int)iccProfile.size())) {
-					ICCProfileTransform::CaptureProfile(iccProfile.data(), (unsigned int)iccProfile.size()); // not captured if sRGB
-					bProfileHandled = true;
+					// no profile: sRGB
+				} else if (!ICCProfileTransform::IsRGBProfile(iccProfile.data(), nProfileSize)) {
+					bProfileHandled = false; // CMYK or gray profile, or lcms2 not available
+				} else if (bKeepColorSpace) {
+					ICCProfileTransform::CaptureProfile(iccProfile.data(), nProfileSize); // not captured if sRGB
+				} else if (!ICCProfileTransform::IsSRGBProfile(iccProfile.data(), nProfileSize)) {
+					pTransformToSRGB = ICCProfileTransform::CreateTransform(iccProfile.data(), nProfileSize, ICCProfileTransform::FORMAT_BGR);
+					bProfileHandled = pTransformToSRGB != NULL;
 				}
 			}
-			bool bUseGDIPlusICM = CSettingsProvider::This().UseEmbeddedColorProfiles() && !bProfileHandled;
+			// ForceGDIPlus=true keeps using GDI+ color management unless the profile is kept with the image
+			bool bUseGDIPlusICM = CSettingsProvider::This().UseEmbeddedColorProfiles() &&
+				(!bProfileHandled || (CSettingsProvider::This().ForceGDIPlus() && !bKeepColorSpace));
 			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || bUseGDIPlusICM;
 			if (bUseGDIPlus) {
 				IStream* pStream = NULL;
@@ -623,6 +633,10 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 
 				// Color and b/w JPEG is supported
 				if (pPixelData != NULL && (nBPP == 3 || nBPP == 1)) {
+					if (pTransformToSRGB != NULL && nBPP == 3) {
+						// TurboJPEG returns BGR rows padded to 4 bytes, converted in place
+						ICCProfileTransform::DoTransform(pTransformToSRGB, pPixelData, pPixelData, nWidth, nHeight, TJPAD(nWidth * 3));
+					}
 					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, 
 						Helpers::FindEXIFBlock(pBuffer, nFileSize), nBPP, 
 						Helpers::CalculateJPEGFileHash(pBuffer, nFileSize), IF_JPEG, false, 0, 1, 0);
@@ -636,6 +650,7 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 					ProcessReadGDIPlusRequest(request);
 				}
 			}
+			ICCProfileTransform::DeleteTransform(pTransformToSRGB);
 		}
 	} catch (...) {
 		delete request->Image;
@@ -790,9 +805,10 @@ void CImageLoadThread::ProcessReadPNGRequest(CRequest* request) {
 			void* pEXIFData = NULL;
 
 #ifndef WINXP
-			// If UseEmbeddedColorProfiles is true and the image isn't animated, we should use GDI+ for better color management.
-			// Not needed when the embedded profile is kept with the image (libpng reads it, see PngReader).
-			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || UseGDIPlusICM();
+			// libpng reads the embedded profile (iCCP) and lcms2 applies it (see PngReader), so GDI+ is only needed for
+			// color management if lcms2 is not available
+			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() ||
+				(CSettingsProvider::This().UseEmbeddedColorProfiles() && !ICCProfileTransform::IsAvailable());
 			if (bUseCachedDecoder || !bUseGDIPlus || PngReader::MustUseLibpng(pBuffer, nFileSize))
 				pPixelData = (uint8*)PngReader::ReadImage(nWidth, nHeight, nBPP, bHasAnimation, nFrameCount, nFrameTimeMs, pEXIFData, request->OutOfMemory, pBuffer, nFileSize);
 #endif

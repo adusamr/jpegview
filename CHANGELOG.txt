@@ -45,8 +45,10 @@ Bugs fixed:
 Changed behavior:
 - "UseEmbeddedColorProfiles" is now true by default, so embedded ICC color profiles are used.
   A user INI file (%APPDATA%\JPEGView\JPEGView.ini) created by an earlier version still contains "false" - change it there.
-- With display color management on, "UseEmbeddedColorProfiles"=true no longer forces GDI+ for JPEG images:
-  JPEGs are decoded with TurboJPEG (fast). Images with CMYK or gray profiles are still converted by GDI+.
+- "UseEmbeddedColorProfiles"=true no longer forces GDI+ for JPEG and PNG images, so it does not slow down loading anymore.
+  JPEGs are decoded with TurboJPEG and PNGs with libpng (which also keeps animated PNG working), and the embedded profile
+  is applied with lcms2, with or without display color management. Only JPEGs with CMYK or gray profiles are still
+  converted by GDI+.
 Other changes:
 - (upstream) JPEG decoding and encoding use the libjpeg-turbo TJ3 API, unknown chroma subsampling is rejected
   thanks qbnu (GH https://github.com/qbnu)

@@ -62,6 +62,12 @@ public:
 	// True if the profile is usable and an RGB profile (not CMYK, gray or Lab)
 	static bool IsRGBProfile(const void* profile, unsigned int size);
 
+	// True if the profile is usable and a standard sRGB profile (converting from it to sRGB changes nothing)
+	static bool IsSRGBProfile(const void* profile, unsigned int size);
+
+	// True if lcms2 (lcms2.dll) can be used. Embedded profiles are then applied by JPEGView itself instead of GDI+.
+	static bool IsAvailable();
+
 	// Converts pixels in place from the given embedded profile to sRGB, used when pixels leave JPEGView
 	// (saving, clipboard, printing). bytesPerPixel is 3 (BGR, rows padded to 4 bytes) or 4 (BGRA).
 	// Does nothing and returns false if profile is empty.

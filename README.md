@@ -11,7 +11,7 @@ Set these options in `JPEGView.ini`:
 | INI Option | Description |
 | ---------- | ----------- |
 | `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the filepath of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
-| `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. With display color management on, this does not slow down loading JPEG images. With `DisplayColorProfile=none` it does, as JPEG images are then read with GDI+. The default value in sylikc/jpegview was `false`.|
+| `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. This does not slow down loading images. The default value in sylikc/jpegview was `false`.|
 
 Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
 
