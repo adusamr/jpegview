@@ -191,7 +191,7 @@ CSettingsProvider::CSettingsProvider(void) {
 	m_bAllowFileDeletion = GetBool(_T("AllowFileDeletion"), true);
 	m_bExchangeXButtons = GetBool(_T("ExchangeXButtons"), true);
 	m_bAutoRotateEXIF = GetBool(_T("AutoRotateEXIF"), true);
-	m_bUseEmbeddedColorProfiles = GetBool(_T("UseEmbeddedColorProfiles"), false);
+	m_bUseEmbeddedColorProfiles = GetBool(_T("UseEmbeddedColorProfiles"), true);
 	m_sDisplayColorProfile = GetString(_T("DisplayColorProfile"), _T("auto"));
 	m_nDisplayMonitor = GetInt(_T("DisplayMonitor"), -1, -1, 16);
 	m_dAutoContrastAmount = GetDouble(_T("AutoContrastCorrectionAmount"), 0.5, 0.0, 1.0);

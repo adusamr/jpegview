@@ -3,7 +3,7 @@
 This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support** (color management for wide gamut and calibrated monitors).
 
 * Images are converted to the ICC profile of the monitor JPEGView is shown on, as assigned in the Windows color management settings. The profile follows the window when it is moved to another monitor.
-* With `UseEmbeddedColorProfiles=true`, images with an embedded profile (for example Display P3 or Adobe RGB photos) are converted directly from their profile to the monitor profile, so colors outside of sRGB are not clipped.
+* Images with an embedded profile (for example Display P3 or Adobe RGB photos) are converted directly from their profile to the monitor profile, so colors outside of sRGB are not clipped.
 * Saving, copying to the clipboard and printing still produce sRGB images.
 
 It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there. See [Display color profiles](#display-color-profiles) for the settings.
@@ -54,7 +54,7 @@ Set these options in `JPEGView.ini`:
 | INI Option | Description |
 | ---------- | ----------- |
 | `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the file name of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
-| `UseEmbeddedColorProfiles` | `true`: use the ICC profiles embedded in images (default `false`). With display color management on, this does not slow down loading JPEG images. |
+| `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. With display color management on, this does not slow down loading JPEG images. With `DisplayColorProfile=none` it does, as JPEG images are then read with GDI+. |
 
 Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
 

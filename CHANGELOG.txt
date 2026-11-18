@@ -14,7 +14,7 @@ New features:
   Skipped for monitors using the default sRGB profile and when Windows color manages the display (HDR / Auto Color Management).
 - New INI file setting: "DisplayColorProfile"
   auto (default) = use the monitor profile from Windows, none = off, or the file name of an ICC profile
-- Wide gamut images: with UseEmbeddedColorProfiles=true and display color management on, images with an embedded RGB
+- Wide gamut images: with display color management on, images with an embedded RGB
   profile keep their pixel values and are converted directly from the embedded profile to the display profile when
   painted, so colors outside of sRGB are no longer clipped. They are converted to sRGB when saved, copied or printed.
 - PNG: embedded ICC profiles (iCCP) are now read with libpng, also for animated PNG
@@ -43,6 +43,8 @@ Bugs fixed:
 - (upstream) Strict AVIF decoding disabled, so more AVIF files can be opened
 - (upstream) Renamed setting "OverwriteOriginalFileWithoutSaveDialog" now used in all INI files
 Changed behavior:
+- "UseEmbeddedColorProfiles" is now true by default, so embedded ICC color profiles are used.
+  A user INI file (%APPDATA%\JPEGView\JPEGView.ini) created by an earlier version still contains "false" - change it there.
 - With display color management on, "UseEmbeddedColorProfiles"=true no longer forces GDI+ for JPEG images:
   JPEGs are decoded with TurboJPEG (fast). Images with CMYK or gray profiles are still converted by GDI+.
 Other changes:

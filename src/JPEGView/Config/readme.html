@@ -1176,11 +1176,11 @@
             setting in the INI file to the desired language code. The supported codes are listed in the INI file.<br /><br />
 
             <b>The colors of images do not look the same compared to other viewers and to the Internet browser</b><br />
-            By default, JPEGView is not interpreting embedded color profiles in JPEG and TIFF images. You can force using these
-            color profiles by setting the following key to true in the INI file: <br />
+            By default, JPEGView uses the color profiles embedded in images. Make sure the following key is not set to false
+            in the INI file (also check the user INI file in %APPDATA%\JPEGView): <br />
             UseEmbeddedColorProfiles=true<br />
-            Be aware the this slows down loading of JPEG images considerably (also when no color profile is embedded)
-            because it forces JPEGView to read the JPEG image with GDI+ instead of using the optimized TJPEG library.
+            If display color management is switched off (DisplayColorProfile=none), using embedded profiles slows down loading
+            of JPEG images considerably, because JPEGView then reads JPEG images with GDI+ instead of the optimized TJPEG library.
             <br /><br />
 
             <b>Colors look oversaturated or wrong on a wide gamut or calibrated monitor</b><br />
@@ -1191,9 +1191,8 @@
             and display color management can be switched off with DisplayColorProfile=none in the INI file.
             The conversion is skipped if Windows color manages the monitor itself (HDR or 'Automatically manage color for apps').
             Saved and copied images are not affected by this setting.<br />
-            To also see the full colors of wide gamut images (e.g. Display P3 or Adobe RGB photos), set UseEmbeddedColorProfiles=true.
-            Images are then converted directly from their embedded profile to the display profile, without clipping them to sRGB first.
-            With display color management on, this does not slow down loading of JPEG images.
+            Images with an embedded profile (e.g. Display P3 or Adobe RGB photos) are converted directly from their profile to the
+            display profile, without clipping them to sRGB first, so their full colors are shown (UseEmbeddedColorProfiles=true, the default).
             <br /><br />
 
             <b>The image set as desktop wallpaper does not span all screens.</b><br />
