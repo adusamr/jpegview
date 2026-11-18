@@ -6,14 +6,23 @@ name: Release
 #   JPEGView32_en-us_<ver>.msi       - 32-bit installer
 #   JPEGView64_en-us_<ver>.msi       - 64-bit installer
 # The release notes are the CHANGELOG.txt section of the version, followed by the SHA-256 checksums.
+#
+# The tag can be pushed with git, or created on GitHub with "Draft a new release" (the release created there is then
+# filled with the files and notes). It can also be started manually from the Actions tab, choosing the tag as the ref.
 
 on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+# runs for the same tag wait for each other
+concurrency:
+  group: release-${{ github.ref_name }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -35,6 +44,10 @@ jobs:
     - name: Check that the tag matches the program version
       shell: pwsh
       run: |
+        if ("${{ github.ref_type }}" -ne "tag") {
+          Write-Error "Start this workflow on a version tag (vYY.MM.N), not on branch ${{ github.ref_name }}"
+          exit 1
+        }
         $ver = "${{ github.ref_name }}".TrimStart('v')
         $define = Select-String -Path src/JPEGView/resource.h -Pattern '#define JPEGVIEW_VERSION "([^"]*)"'
         $programVer = $define.Matches[0].Groups[1].Value
@@ -125,5 +138,14 @@ jobs:
         $notes | Set-Content -Encoding utf8 release-notes.md
         Get-Content release-notes.md
 
-        gh release create $tag (Get-ChildItem dist).FullName --title "JPEGView $ver" --notes-file release-notes.md --verify-tag
+        $files = (Get-ChildItem dist).FullName
+        gh release view $tag *> $null
+        if ($LASTEXITCODE -eq 0) {
+          # release already created on GitHub (e.g. with "Draft a new release"): add the files and notes
+          gh release upload $tag $files --clobber
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          gh release edit $tag --title "JPEGView $ver" --notes-file release-notes.md
+        } else {
+          gh release create $tag $files --title "JPEGView $ver" --notes-file release-notes.md --verify-tag
+        }
         if ($LASTEXITCODE -ne 0) { exit 1 }
