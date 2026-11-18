@@ -1,10 +1,12 @@
-[![Documentation](https://img.shields.io/badge/Docs-Outdated-yellowgreen)](https://htmlpreview.github.io/?https://github.com/sylikc/jpegview/blob/master/src/JPEGView/Config/readme.html) [![Localization Progress](https://img.shields.io/badge/Localized-91%25-blueviolet)](#Localization) [![Build x64](https://github.com/sylikc/jpegview/actions/workflows/build-release-x64.yml/badge.svg?branch=master)](https://github.com/sylikc/jpegview/actions/workflows/build-release-x64.yml) [![OS Support](https://img.shields.io/badge/Windows-XP%20%7C%207%20%7C%208%20%7C%2010%20%7C%2011-blue)](#) [![License: GPL v2](https://img.shields.io/badge/License-GPL%20v2-blue)](https://github.com/sylikc/jpegview/blob/master/LICENSE.txt)
-
-[![Latest GitHub Release](https://img.shields.io/github/v/release/sylikc/jpegview?label=GitHub&style=social)](https://github.com/sylikc/jpegview/releases)[![Downloads](https://badgen.net/github/assets-dl/sylikc/jpegview?cache=3600&color=grey&label=)](#) [![WinGet](https://repology.org/badge/version-for-repo/winget/jpegview.svg?allow_ignored=1&header=WinGet)](https://winstall.app/apps/sylikc.JPEGView) [![PortableApps](https://img.shields.io/badge/PortableApps-Current-green)](https://portableapps.com/apps/graphics_pictures/jpegview_portable) [![Scoop](https://repology.org/badge/version-for-repo/scoop/jpegview-fork.svg?header=Scoop)](https://scoop.sh/#/apps?q=%22jpegview-fork%22) [![Chocolatey](https://img.shields.io/chocolatey/v/jpegview)](https://community.chocolatey.org/packages/jpegview) [![Npackd](https://repology.org/badge/version-for-repo/npackd_stable/jpegview.svg?allow_ignored=1&header=Npackd)](https://www.npackd.org/p/jpegview)
-
 # JPEGView - Image Viewer and Editor
 
-This is the official re-release of JPEGView.
+This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support** (color management for wide gamut and calibrated monitors).
+
+* Images are converted to the ICC profile of the monitor JPEGView is shown on, as assigned in the Windows color management settings. The profile follows the window when it is moved to another monitor.
+* With `UseEmbeddedColorProfiles=true`, images with an embedded profile (for example Display P3 or Adobe RGB photos) are converted directly from their profile to the monitor profile, so colors outside of sRGB are not clipped.
+* Saving, copying to the clipboard and printing still produce sRGB images.
+
+It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there. See [Display color profiles](#display-color-profiles) for the settings.
 
 ## Description
 
@@ -15,9 +17,9 @@ JPEGView is a lean, fast and highly configurable image viewer/editor with a mini
 JPEGView has built-in support the following formats:
 
 * Popular: JPEG, GIF
-* Lossless: BMP, PNG, TIFF, PSD
+* Lossless: BMP, PNG, TIFF, PSD/PSB
 * Web: WEBP, JXL, HEIF/HEIC, AVIF
-* Legacy: TGA, WDP, HDP, JXR
+* Other: QOI, TGA, WDP, HDP, JXR
 * Camera RAW formats:
   * Adobe (DNG), Canon (CRW, CR2, CR3), Nikon (NEF, NRW), Sony (ARW, SR2)
   * Olympus (ORF), Panasonic (RW2), Fujifilm (RAF)
@@ -43,16 +45,34 @@ Basic on-the-fly image processing is provided - allowing adjusting typical param
 * High quality resampling filter, preserving sharpness of images
 * Basic image processing tools can be applied realtime during viewing
 * Movie/Slideshow mode - to play folder of JPEGs as movie
+* Display color management for wide gamut and calibrated monitors
+
+## Display color profiles
+
+Set these options in `JPEGView.ini`:
+
+| INI Option | Description |
+| ---------- | ----------- |
+| `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the file name of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
+| `UseEmbeddedColorProfiles` | `true`: use the ICC profiles embedded in images (default `false`). With display color management on, this does not slow down loading JPEG images. |
+
+Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
+
+If you have saved settings in JPEGView before, a user `JPEGView.ini` exists in `%APPDATA%\JPEGView\`. Its settings override the `JPEGView.ini` in the JPEGView folder.
 
 # Installation
 
-## Official Releases
+## Releases
 
-Official releases will be made to [sylikc's GitHub Releases](https://github.com/sylikc/jpegview/releases) page.  Each release includes:
+Releases are made on this fork's [GitHub Releases](https://github.com/adusamr/jpegview/releases) page. Each release includes:
 
-* **Archive Zip/7z** - Portable
-* **Windows Installer MSI** - For Installs
-* **Source code** - Build it yourself
+* **Portable archive** - unzip and run
+* **Windows Installer (MSI)** - for installs
+* **Source code** - build it yourself
+
+Version numbers have the form `YY.MM.N` (year, month, release number in that month), independent of the 1.x version numbers of sylikc/jpegview.
+
+The package managers that offer JPEGView (WinGet, Scoop, Chocolatey, PortableApps, Npackd) install the upstream sylikc/jpegview version, which does not include display color profile support.
 
 ## Portable
 
@@ -60,62 +80,21 @@ JPEGView _does not require installation_ to run.  Just **unzip, and run** either
 
 ## MSI Installer
 
-For those who prefer to have JPEGView installed for All Users, a 32-bit/64-bit installer is available to download starting with v1.0.40.
+For those who prefer to have JPEGView installed for All Users, a 32-bit/64-bit installer is available.
 
-(Unfortunately, I don't own a code signing certificate yet, so the MSI release is not signed.  Please verify checksums!)
-
-### WinGet
-
-If you're on Windows 11, or Windows 10 (build 1709 or later), you can also download it directly from the official [Microsoft WinGet tool](https://docs.microsoft.com/en-us/windows/package-manager/winget/) repository.  This downloads the latest MSI installer directly from GitHub for installation.
-
-Example Usage:
-
-C:\> `winget search jpegview`
-```
-Name     Id              Version  Source
------------------------------------------
-JPEGView sylikc.JPEGView 1.1.43  winget
-```
-
-C:\> `winget install jpegview`
-```
-Found JPEGView [sylikc.JPEGView] Version 1.1.43
-This application is licensed to you by its owner.
-Microsoft is not responsible for, nor does it grant any licenses to, third-party packages.
-Downloading https://github.com/sylikc/jpegview/releases/download/v1.1.43/JPEGView64_en-us_1.1.43.msi
-  ██████████████████████████████  4.23 MB / 4.23 MB
-Successfully verified installer hash
-Starting package install...
-Successfully installed
-```
-
-## PortableApps
-
-Another option is to use the official [JPEGView on PortableApps](https://portableapps.com/apps/graphics_pictures/jpegview_portable) package.  The PortableApps launcher preserves user settings in a separate directory from the extracted application directory.  This release is signed.
-
-## Scoop
-
-[Scoop](https://scoop.sh/) is a Windows command-line installer and manager for portable applications.
-
-To install with Scoop, run the following commands:
-
-```shell
-scoop bucket add extras
-scoop install extras/jpegview-fork
-```
-
-After installation, the configuration file is located at `%UserProfile%\scoop\persist\JPEGView-fork\JPEGView.ini`.
+The installer replaces an installed official (sylikc) JPEGView. The MSI is not code signed.
 
 ## System Requirements
 
-* 64-bit version: Windows 7/8/10/11 64-bit or later
-* 32-bit version: Windows 7 or later
-  * A special _32-bit Windows XP SP2_ build is available, which supports most formats (except for formats added after v1.0.37.1, ex. Animated PNG, JXL, HEIC).  Other features and options are the same as the normal builds.
+* 64-bit version: Windows 7 SP1 or later, 64-bit
+* 32-bit version: Windows 7 SP1 or later
+
+The special Windows XP build of sylikc/jpegview is not provided by this fork.
 
 ## What's New
 
-* See what has changed in the [latest releases](https://github.com/sylikc/jpegview/releases)
-* Or Check the [CHANGELOG.txt](https://github.com/sylikc/jpegview/blob/master/CHANGELOG.txt) to review new features in detail.
+* See what has changed in the [releases](https://github.com/adusamr/jpegview/releases)
+* Or check the [CHANGELOG.txt](CHANGELOG.txt) to review new features in detail.
 
 # Localization
 
@@ -154,23 +133,29 @@ JPEGView is currently translated/localized to 28 languages:
 | zh-tw | Chinese, Traditional (繁體中文) |
 | zh | Chinese, Simplified (简体中文) |
 
-See the [Localization wiki page](https://github.com/sylikc/jpegview/wiki/Localization#localization-status) for translation status for each language.
+See the upstream [Localization wiki page](https://github.com/sylikc/jpegview/wiki/Localization#localization-status) for the translation status of each language.
 
 # Help / Documentation
 
-The JPEGView documentation is a little out of the date at the moment, but should still give a good summary of the features.
+The JPEGView documentation is a little out of date, but should still give a good summary of the features. All options are described in `JPEGView.ini`.
 
-This [readme.html](https://htmlpreview.github.io/?https://github.com/sylikc/jpegview/blob/master/src/JPEGView/Config/readme.html) is part of the JPEGView package.
+This [readme.html](https://htmlpreview.github.io/?https://github.com/adusamr/jpegview/blob/main/src/JPEGView/Config/readme.html) is part of the JPEGView package.
+
+# License
+
+JPEGView is licensed under the GNU General Public License v2, see [LICENSE.txt](LICENSE.txt).
 
 # Brief History
 
-This GitHub repo continues the legacy (is a "fork") of the excellent project [JPEGView by David Kleiner](https://sourceforge.net/projects/jpegview/).  Unfortunately, starting in 2020, the SourceForge project has essentially been abandoned, with the last update being [2018-02-24 (1.0.37)](https://sourceforge.net/projects/jpegview/files/jpegview/).  It's an excellent lightweight image viewer that I use almost daily!
+JPEGView was created by [David Kleiner](https://sourceforge.net/projects/jpegview/). The SourceForge project was abandoned, with the last update on [2018-02-24 (1.0.37)](https://sourceforge.net/projects/jpegview/files/jpegview/).
 
-The starting point for this repo was a direct clone from SourceForge SVN to GitHub Git.  By continuing this way, it retains all previous commits and all original author comments.
+In 2020, [sylikc](https://github.com/sylikc) continued the project on GitHub as [sylikc/jpegview](https://github.com/sylikc/jpegview), starting from a direct clone of the SourceForge SVN repository, so all previous commits and original author comments are retained. Its last release was 1.3.46 (2023-10-07).
 
-I'm hoping with this project, some devs might help me keep the project alive!  It's been awhile, and could use some new features or updates.  Looking forward to the community making suggestions, and devs will help with some do pull requests as some of the image code is quite a learning curve for me to pick it up. -sylikc
+This fork builds on sylikc/jpegview and adds display color profile support.
 
 ## Special Thanks
+
+Thanks to David Kleiner for creating JPEGView, and to [sylikc](https://github.com/sylikc) for continuing it.
 
 Special thanks to [qbnu](https://github.com/qbnu) for adding additional codec support!
 * Animated WebP
@@ -180,6 +165,6 @@ Special thanks to [qbnu](https://github.com/qbnu) for adding additional codec su
 * QOI support
 * ICC Profile support for WebP, JPEG XL, HEIF/HEIC, AVIF
 * LibRaw support (all updated RAW formats, such as CR3)
-* Photoshop PSD support
+* Photoshop PSD/PSB support
 
-Thanks to all the _translators_ which keep JPEGView strings up-to-date in different languages!  See [CHANGELOG.txt](https://github.com/sylikc/jpegview/blob/master/CHANGELOG.txt) to find credits for translators at each release!
+Thanks to all the _translators_ which keep JPEGView strings up-to-date in different languages!  See [CHANGELOG.txt](CHANGELOG.txt) to find credits for translators at each release!
