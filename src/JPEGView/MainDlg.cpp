@@ -3831,11 +3831,23 @@ bool CMainDlg::PerformZoom(double dValue, bool bExponent, bool bZoomToMouse, boo
 	double dZoomMin = max(0.0001, min(Helpers::ZoomMin, GetZoomFactorForFitToScreen(false, false) * 0.5));
 	m_dZoom = max(dZoomMin, min(Helpers::ZoomMax, m_dZoom));
 
-	if (MaxRatio(m_dZoom, 1.0) < 1.05) { // Special case 1: Image zoomed size within 5% of image real size -> Use real size
+	// Snap thresholds. For stepwise zooming (mouse wheel, keys) the threshold must not be larger than half
+	// a zoom step (geometrically), otherwise a step away from an exact snap target lands within the
+	// threshold again and is snapped back - zooming gets stuck at 100% / fit (e.g. MouseWheelZoomSpeed=0.5).
+	// As a side effect, snapping then only happens when the new zoom is closer to the target than the old one.
+	double dSnapThreshold = 1.05;
+	double dPauseSnapThreshold = 1.01;
+	if (bExponent && m_dZoomMult > 1.0) {
+		double dHalfStep = sqrt(pow(m_dZoomMult, fabs(dValue)));
+		dSnapThreshold = min(dSnapThreshold, dHalfStep);
+		dPauseSnapThreshold = min(dPauseSnapThreshold, dHalfStep);
+	}
+
+	if (MaxRatio(m_dZoom, 1.0) < dSnapThreshold) { // Special case 1: Image zoomed size close to image real size -> Use real size
 		m_dZoom = 1.0;
 	} else { // Special case 2: Image zoomed size close to ZoomToWindow size -> Use ZoomToWindow size
 		double dZoomWindow = GetZoomFactorForFitToScreen(false, false);
-		if (MaxRatio(m_dZoom, dZoomWindow) < 1.05) {
+		if (MaxRatio(m_dZoom, dZoomWindow) < dSnapThreshold) {
 			m_dZoom = dZoomWindow;
 		}
 	}
@@ -3843,9 +3855,9 @@ bool CMainDlg::PerformZoom(double dValue, bool bExponent, bool bZoomToMouse, boo
 	// only pause on some percent if enabled
 	double pauseAtZoom = CSettingsProvider::This().ZoomPauseFactor();
 	if (pauseAtZoom != 0) {
-		// snap to zoom factor... aka if within 1% of the set zoom factor, snap exactly to it
+		// snap to zoom factor... aka if close to the set zoom factor (1% or half a zoom step), snap exactly to it
 		// skip it if the zoom factor is 100% since it's already checked above - save one expensive calculation of abs()
-		if (pauseAtZoom != 1 && (MaxRatio(m_dZoom, pauseAtZoom) < 1.01)) {
+		if (pauseAtZoom != 1 && (MaxRatio(m_dZoom, pauseAtZoom) < dPauseSnapThreshold)) {
 			m_dZoom = pauseAtZoom;
 		}
 
