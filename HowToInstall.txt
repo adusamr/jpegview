@@ -6,17 +6,10 @@ JPEGView is provided in a 32 bit version and a 64 bit version. If you are using 
 
 2. Check operation system requirements
 JPEGView32:
- Windows XP SP2 or SP3 (it does NOT work with SP1 only)
- Windows XP 64 bit SP2
- Windows Vista SP2
- Windows 7
- Windows 8/8.1
- Windows 10
+ Windows 7 SP1 or later
 JPEGView64:
- Windows 7 64 bit edition
- Windows 8/8.1 64 bit edition
- Windows 10 64 bit edition
- (not supported: Windows XP 64 bit)
+ Windows 7 SP1 or later, 64 bit edition
+(Windows XP and Vista are not supported by this version)
 
 3. Extract directory
 JPEGView can be installed by simply extracting the directory with the chosen version to an arbitrary location on your hard disk, e.g.:

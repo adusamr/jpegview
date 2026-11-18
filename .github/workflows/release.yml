@@ -1,0 +1,129 @@
+name: Release
+
+# Builds the 32-bit and 64-bit release versions and publishes a GitHub release when a version tag (vYY.MM.N) is pushed.
+# Release files, named like the releases of sylikc/jpegview:
+#   JPEGView_<ver>.zip / .7z         - portable, with the folders JPEGView32 and JPEGView64
+#   JPEGView32_en-us_<ver>.msi       - 32-bit installer
+#   JPEGView64_en-us_<ver>.msi       - 64-bit installer
+# The release notes are the CHANGELOG.txt section of the version, followed by the SHA-256 checksums.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-2022
+    strategy:
+      matrix:
+        include:
+          - platform-arch: Win32
+            out-arch: x86
+            bits: 32
+          - platform-arch: x64
+            out-arch: x64
+            bits: 64
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Check that the tag matches the program version
+      shell: pwsh
+      run: |
+        $ver = "${{ github.ref_name }}".TrimStart('v')
+        $define = Select-String -Path src/JPEGView/resource.h -Pattern '#define JPEGVIEW_VERSION "([^"]*)"'
+        $programVer = $define.Matches[0].Groups[1].Value
+        if ($programVer -ne $ver) {
+          Write-Error "Tag ${{ github.ref_name }} does not match JPEGVIEW_VERSION ""$programVer"" in resource.h"
+          exit 1
+        }
+
+    - name: Setup msbuild
+      uses: microsoft/setup-msbuild@v2
+      with:
+        vs-version: '[17.0,18.0)'
+        msbuild-architecture: ${{ matrix.platform-arch }}
+
+    - uses: ./.github/actions/setup-wix
+
+    - uses: ./.github/actions/wtl-submodule
+
+    # tag builds keep the plain "JPEGView" name and version (no "~GHdevtest" suffix)
+    - uses: ./.github/actions/build-solution
+      with:
+        platform-arch: ${{ matrix.platform-arch }}
+        build-config: Release
+
+    - name: Collect release files
+      shell: pwsh
+      run: |
+        $ver = "${{ github.ref_name }}".TrimStart('v')
+        New-Item -ItemType Directory -Path out | Out-Null
+        Move-Item "src/JPEGView/bin/${{ matrix.out-arch }}/Release" "out/JPEGView${{ matrix.bits }}"
+        # remove build intermediates
+        Get-ChildItem out -Recurse -Include *.exp, *.lib, *.pdb | Remove-Item
+        Copy-Item "src/JPEGView.Setup/bin/${{ matrix.out-arch }}/Release/en-us/JPEGView.Setup.msi" "out/JPEGView${{ matrix.bits }}_en-us_$ver.msi"
+        Get-ChildItem out | Format-Table Name, Length
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: release-${{ matrix.bits }}
+        path: out
+
+  publish:
+    needs: build
+    runs-on: windows-2022
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - uses: actions/download-artifact@v4
+      with:
+        pattern: release-*
+        path: artifacts
+        merge-multiple: true
+
+    - name: Package and publish
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        $tag = "${{ github.ref_name }}"
+        $ver = $tag.TrimStart('v')
+
+        # portable folder, laid out like the releases of sylikc/jpegview
+        New-Item -ItemType Directory -Path portable, dist | Out-Null
+        Move-Item artifacts/JPEGView32, artifacts/JPEGView64 portable/
+        Copy-Item HowToInstall.txt, HowToInstall_ru.txt, CHANGELOG.txt portable/
+        Push-Location portable
+        & 7z a -tzip -mx9 "../dist/JPEGView_$ver.zip" .
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        & 7z a -t7z -mx9 "../dist/JPEGView_$ver.7z" .
+        if ($LASTEXITCODE -ne 0) { exit 1 }
+        Pop-Location
+        Move-Item artifacts/*.msi dist/
+
+        # release notes: CHANGELOG section of this version, then the checksums
+        $lines = Get-Content CHANGELOG.txt
+        $start = 0
+        while ($start -lt $lines.Count -and -not $lines[$start].StartsWith("[$ver]")) { $start++ }
+        if ($start -ge $lines.Count) { Write-Error "No section [$ver] in CHANGELOG.txt"; exit 1 }
+        $end = $start + 1
+        while ($end -lt $lines.Count -and -not $lines[$end].StartsWith('[')) { $end++ }
+        $notes = @('```') + $lines[$start..($end - 1)].TrimEnd() + @('```', '', '### SHA-256 Checksums', '', '```')
+        foreach ($file in Get-ChildItem dist | Sort-Object Name) {
+          $hash = (Get-FileHash $file.FullName -Algorithm SHA256).Hash.ToLower()
+          $notes += "$hash *$($file.Name)"
+        }
+        $notes += '```'
+        $notes | Set-Content -Encoding utf8 release-notes.md
+        Get-Content release-notes.md
+
+        gh release create $tag (Get-ChildItem dist).FullName --title "JPEGView $ver" --notes-file release-notes.md --verify-tag
+        if ($LASTEXITCODE -ne 0) { exit 1 }
