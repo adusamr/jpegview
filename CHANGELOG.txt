@@ -1,8 +1,9 @@
 JPEGView Changelog
 ******************
 [1.4.0.12] TBD
+- Fixed issue #43 (Scroll-wheel zoom issue when MouseWheelZoomSpeed is set very low)
 - Updated to library version:
-  * libjxl          (2026-11-17)    branch "main"       (v0.13-snapshot-3-ga14f4e0f) 
+  * libjxl          (2026-11-17)    branch "main"       (v0.13-snapshot-3-ga14f4e0f)
 
 [1.4.0.11] 2026-11-13
 - Added INI-Setting "ShowNavPanelFirstLastButtons" to switch the display of the 'Show first/last image in folder' buttons from the navigation panel. (fix for issue #38)
