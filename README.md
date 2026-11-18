@@ -1,12 +1,19 @@
 # JPEGView - Image Viewer and Editor
 
-This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support** (color management for wide gamut and calibrated monitors).
+This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support**. See [Display color profiles](#display-color-profiles) for the settings.
 
-* Images are converted to the ICC profile of the monitor JPEGView is shown on, as assigned in the Windows color management settings. The profile follows the window when it is moved to another monitor.
-* Images with an embedded profile (for example Display P3 or Adobe RGB photos) are converted directly from their profile to the monitor profile, so colors outside of sRGB are not clipped.
-* Saving, copying to the clipboard and printing still produce sRGB images.
+It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there.
 
-It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there. See [Display color profiles](#display-color-profiles) for the settings.
+## Display color profiles
+
+Set these options in `JPEGView.ini`:
+
+| INI Option | Description |
+| ---------- | ----------- |
+| `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the filepath of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
+| `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. With display color management on, this does not slow down loading JPEG images. With `DisplayColorProfile=none` it does, as JPEG images are then read with GDI+. The default value in sylikc/jpegview was `false`.|
+
+Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
 
 ## Description
 
@@ -45,20 +52,7 @@ Basic on-the-fly image processing is provided - allowing adjusting typical param
 * High quality resampling filter, preserving sharpness of images
 * Basic image processing tools can be applied realtime during viewing
 * Movie/Slideshow mode - to play folder of JPEGs as movie
-* Display color management for wide gamut and calibrated monitors
 
-## Display color profiles
-
-Set these options in `JPEGView.ini`:
-
-| INI Option | Description |
-| ---------- | ----------- |
-| `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the file name of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
-| `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. With display color management on, this does not slow down loading JPEG images. With `DisplayColorProfile=none` it does, as JPEG images are then read with GDI+. |
-
-Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
-
-If you have saved settings in JPEGView before, a user `JPEGView.ini` exists in `%APPDATA%\JPEGView\`. Its settings override the `JPEGView.ini` in the JPEGView folder.
 
 # Installation
 
@@ -70,9 +64,7 @@ Releases are made on this fork's [GitHub Releases](https://github.com/adusamr/jp
 * **Windows Installer (MSI)** - for installs
 * **Source code** - build it yourself
 
-Version numbers have the form `YY.MM.N` (year, month, release number in that month), independent of the 1.x version numbers of sylikc/jpegview.
-
-The package managers that offer JPEGView (WinGet, Scoop, Chocolatey, PortableApps, Npackd) install the upstream sylikc/jpegview version, which does not include display color profile support.
+The package managers that offer JPEGView (WinGet, Scoop, Chocolatey, PortableApps, Npackd) install the upstream sylikc/jpegview version, not this fork.
 
 ## Portable
 
@@ -88,8 +80,6 @@ The installer replaces an installed official (sylikc) JPEGView. The MSI is not c
 
 * 64-bit version: Windows 7 SP1 or later, 64-bit
 * 32-bit version: Windows 7 SP1 or later
-
-The special Windows XP build of sylikc/jpegview is not provided by this fork.
 
 ## What's New
 
@@ -154,9 +144,6 @@ In 2020, [sylikc](https://github.com/sylikc) continued the project on GitHub as 
 This fork builds on sylikc/jpegview and adds display color profile support.
 
 ## Special Thanks
-
-Thanks to David Kleiner for creating JPEGView, and to [sylikc](https://github.com/sylikc) for continuing it.
-
 Special thanks to [qbnu](https://github.com/qbnu) for adding additional codec support!
 * Animated WebP
 * Animated PNG
@@ -165,6 +152,6 @@ Special thanks to [qbnu](https://github.com/qbnu) for adding additional codec su
 * QOI support
 * ICC Profile support for WebP, JPEG XL, HEIF/HEIC, AVIF
 * LibRaw support (all updated RAW formats, such as CR3)
-* Photoshop PSD/PSB support
+* Photoshop PSD support
 
 Thanks to all the _translators_ which keep JPEGView strings up-to-date in different languages!  See [CHANGELOG.txt](CHANGELOG.txt) to find credits for translators at each release!
