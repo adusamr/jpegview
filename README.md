@@ -1,14 +1,14 @@
 # JPEGView - Image Viewer and Editor
 
-This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support**. See [Display color profiles](#display-color-profiles) for the settings.
+This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support**.
 
 It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there.
 
 ## Display color profiles
 
-Set these options in `JPEGView.ini`:
+Display color profile support and embedded color profile support are enabled by default.
 
-| INI Option | Description |
+| JPEGView.ini Option | Description |
 | ---------- | ----------- |
 | `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the filepath of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
 | `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. The default value in sylikc/jpegview was `false`.|
