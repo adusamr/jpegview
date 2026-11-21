@@ -605,17 +605,17 @@
 					</Component>
 
 					<Component Id="CHANGELOG.txt" Guid="*">
-						<File Id="CHANGELOG.txt" Name="CHANGELOG.txt" Source="$(var.JPEGView.TargetDir)CHANGELOG.txt" />
+						<File Id="CHANGELOG.txt" Name="CHANGELOG.txt" Source="$(var.SolutionDir)..\CHANGELOG.txt" />
 					</Component>
 					<Component Id="LICENSE.txt" Guid="*">
 						<File Id="LICENSE.txt" Name="LICENSE.txt" Source="$(var.JPEGView.TargetDir)LICENSE.txt" />
 					</Component>
 
 					<Component Id="HowToInstall.txt" Guid="*">
-						<File Id="HowToInstall.txt" Name="HowToInstall.txt" Source="$(var.JPEGView.TargetDir)HowToInstall.txt" />
+						<File Id="HowToInstall.txt" Name="HowToInstall.txt" Source="$(var.SolutionDir)..\HowToInstall.txt" />
 					</Component>
 					<Component Id="HowToInstall_ru.txt" Guid="*">
-						<File Id="HowToInstall_ru.txt" Name="HowToInstall_ru.txt" Source="$(var.JPEGView.TargetDir)HowToInstall_ru.txt" />
+						<File Id="HowToInstall_ru.txt" Name="HowToInstall_ru.txt" Source="$(var.SolutionDir)..\HowToInstall_ru.txt" />
 					</Component>
 					
 					<Component Id="readme.html" Guid="*">

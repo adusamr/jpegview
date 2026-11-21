@@ -1,9 +1,9 @@
 name: Release
 
-# Builds the 32-bit and 64-bit release versions and publishes a GitHub release when a version tag (vYY.MM.N) is pushed.
+# Builds the 64-bit release version and publishes a GitHub release when a version tag (vYY.MM.N) is pushed.
+# (32-bit builds were dropped with the JPEGView_L merge, its code does not support them.)
 # Release files, named like the releases of sylikc/jpegview:
-#   JPEGView_<ver>.zip / .7z         - portable, with the folders JPEGView32 and JPEGView64
-#   JPEGView32_en-us_<ver>.msi       - 32-bit installer
+#   JPEGView_<ver>.zip / .7z         - portable, with the folder JPEGView64
 #   JPEGView64_en-us_<ver>.msi       - 64-bit installer
 # The release notes are the CHANGELOG.txt section of the version, followed by the SHA-256 checksums.
 #
@@ -30,9 +30,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - platform-arch: Win32
-            out-arch: x86
-            bits: 32
           - platform-arch: x64
             out-arch: x64
             bits: 64
@@ -112,7 +109,7 @@ jobs:
 
         # portable folder, laid out like the releases of sylikc/jpegview
         New-Item -ItemType Directory -Path portable, dist | Out-Null
-        Move-Item artifacts/JPEGView32, artifacts/JPEGView64 portable/
+        Move-Item artifacts/JPEGView64 portable/
         Copy-Item HowToInstall.txt, HowToInstall_ru.txt, CHANGELOG.txt portable/
         Push-Location portable
         & 7z a -tzip -mx9 "../dist/JPEGView_$ver.zip" .

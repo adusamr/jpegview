@@ -99,8 +99,7 @@ The installer replaces an installed official (sylikc) JPEGView. The MSI is not c
 
 ## System Requirements
 
-* 64-bit version: Windows 7 SP1 or later, 64-bit
-* 32-bit version: Windows 7 SP1 or later
+* Windows 7 SP1 or later, 64-bit only. 32-bit builds are no longer made, as the JPEGView_L code does not support them.
 
 ## What's New
 
