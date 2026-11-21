@@ -16,24 +16,10 @@
 
 void* ICCProfileTransform::sRGBProfile = NULL;
 
-// Hilfsfunktion zur Prüfung, ob ein Profil sRGB ist
-static bool IsStandardsRGB(cmsHPROFILE hProfile) {
-    if (hProfile == nullptr) return false;
-
-    // 1. Prüfen über die Profil-Beschreibung (z.B. "sRGB IEC61966-2.1")
-    char desc[128] = {0};
-    cmsGetProfileInfoASCII(hProfile, cmsInfoDescription, "en", "US", desc, sizeof(desc));
-    if (std::strstr(desc, "sRGB") != nullptr) {
-        return true;
-    }
-
-    // 2. Optional: Alternativer Check über Farbraum-Signatur und Matrix-Eigenschaften
-    if (cmsGetColorSpace(hProfile) == cmsSigRgbData && cmsIsMatrixShaper(hProfile)) {
-        // Man könnte hier optional noch weitere Heuriken einbauen,
-        // aber der Beschreibungstext deckt 99% der Standard-JPEGs ab.
-    }
-
-    return false;
+namespace {
+	// Defined below: true only for the standard sRGB profiles (checked by exact description, not by a text search,
+	// as e.g. "Linear sRGB" profiles share the sRGB primaries but have another tone curve and must be converted)
+	bool IsSRGBProfile(cmsHPROFILE hProfile, const CString& sPath);
 }
 
 void* ICCProfileTransform::CreateTransform(const void* profile, unsigned int size, PixelFormat format)
@@ -62,7 +48,7 @@ void* ICCProfileTransform::CreateTransform(const void* profile, unsigned int siz
 	}
 
     // Already sRGB?
-    if (IsStandardsRGB(hInProfile)) {
+    if (::IsSRGBProfile(hInProfile, CString())) {
         cmsCloseProfile(hInProfile);
         return nullptr;
     }
