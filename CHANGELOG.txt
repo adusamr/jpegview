@@ -1,12 +1,13 @@
 JPEGView Changelog
 ******************
-[Unreleased] TBD
+[26.11.1] 2026-11-22
 New features:
 - Merged all changes of the JPEGView_L fork (https://github.com/KrokusPokus/JPEGView_L) up to its version 1.4.0.12:
   linear-light resampling, more downsampling filters, CBZ/CB7 comic book archives with bookmarks, smooth and smart
   panning, one instance per folder, checkerboard transparency, better caching, dark mode and more.
   See the JPEGView_L changelog below for the details.
 - Display color management and embedded color profiles (see 26.11.0) work together with the JPEGView_L changes.
+- 32-bit builds are no longer provided: the JPEGView_L code only supports 64-bit Windows.
 Build:
 - GitHub Actions: libpng is built with the new build script of JPEGView_L, bit7z is built, and 7z.dll (needed for
   CB7 archives) is taken from the official 7-Zip installer.
