@@ -1,6 +1,9 @@
 name: Build Test x64 (Debug)
 
-on: [push, pull_request]
+# Manual runs only (Actions tab -> "Run workflow"): the Debug build does not link at the moment, as the prebuilt
+# bit7z.lib (from JPEGView_L) is a Release (/MT) library only. Use [push, pull_request] again once a Debug bit7z.lib exists.
+on:
+  workflow_dispatch:
 
 jobs:
   call-workflow-build:
