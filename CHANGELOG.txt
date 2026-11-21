@@ -1,5 +1,15 @@
 JPEGView Changelog
 ******************
+[Unreleased] TBD
+New features:
+- Merged all changes of the JPEGView_L fork (https://github.com/KrokusPokus/JPEGView_L) up to its version 1.4.0.12:
+  linear-light resampling, more downsampling filters, CBZ/CB7 comic book archives with bookmarks, smooth and smart
+  panning, one instance per folder, checkerboard transparency, better caching, dark mode and more.
+  See the JPEGView_L changelog below for the details.
+- Display color management and embedded color profiles (see 26.11.0) work together with the JPEGView_L changes.
+Build:
+- GitHub Actions: libpng is built with the new build script of JPEGView_L, bit7z is built, and 7z.dll (needed for
+  CB7 archives) is taken from the official 7-Zip installer.
 
 [26.11.0] 2026-11-18
 First release of the adusamr/jpegview fork. Version numbers are now YY.MM.N (year, month, release number in that
@@ -59,6 +69,119 @@ Other changes:
 Localization updates:
 - (upstream) Updated Russian translation, thanks Dmitry Yerokhin
 - (upstream) Updated Japanese translation, thanks maboroshin (GH https://github.com/maboroshin)
+
+JPEGView_L changelog (merged)
+=============================
+
+[1.4.0.12] TBD
+- Fixed issue #43 (Scroll-wheel zoom issue when MouseWheelZoomSpeed is set very low)
+- Updated to library version:
+  * libjxl          (2026-11-17)    branch "main"       (v0.13-snapshot-3-ga14f4e0f)
+
+[1.4.0.11] 2026-11-13
+- Added INI-Setting "ShowNavPanelFirstLastButtons" to switch the display of the 'Show first/last image in folder' buttons from the navigation panel. (fix for issue #38)
+- Improved folder navigation modes (fix for issue #39)
+
+[1.4.0.10] 2026-11-11
+- Fixed regression: Issue #30 (Opening files in a root folder might fail)
+- Uses half size resolution cache when downscaling to <25%
+- Added dark mode for the title bar, the context menu and the dialogs (Windows 10 1903 or later). New INI setting DarkMode=auto/true/false, by default JPEGView follows the Windows color setting
+
+[1.4.0.9] 2026-10-31
+- Backported some improvements from mkImageViewer. AVX path should be a bit faster now
+- Fixed some issues with string handling. Might resolve #29.
+
+[1.4.0.8] 2026-10-28
+- Speed optimization when opening folders with a huge number of files
+- Increased maximum allowed file size for all image formats to 1 GiB
+- Added ICC handling via lcms2 to PNG reader, so it does not have to fall back to GDI+ anymore when UseEmbeddedColorProfiles=true
+- The embedded ICC Profile will now only be applied if it differs from sRGB
+- Fixed info window not displaying locale arabic correctly
+
+[1.4.0.7] 2026-10-06
+- Allow transition effects to work when not in fullscreen mode
+
+[1.4.0.6] 2026-09-25
+- Added new action IDM_CUT_FILE (can be used to move the currently open image's file into a different directory)
+- Added new action IDM_RELOAD_FULL (reloads image and file list)
+- Added Arabic translation
+- Fix issue #14 (MouseWheel navigation not working when current image couldn't be loaded)
+- Fix issue #21 (filesize string not using decimals)
+
+[1.4.0.5] 2026-08-26
+- Fixed jxl animation issue
+- Fixed some image formats not loading in zip archives.
+- Addressed raw format display default (ini value "DisplayFullSizeRAW" changed from 0 to 3)
+- Fixed issue of very large jpeg files no loading
+
+[1.4.0.4] 2026-08-16
+- Fixed issue of panels not becoming visible
+- Fixed issue of zoom factor displaying even when switching fullscreen state
+- Updated to library versions:
+  * bit7z           (2026-06-18)    branch "master"     (v4.0.12-821-g3c7cbbf2)
+  * dav1d           (2026-08-14)    branch "master"     (1.5.4-1-g52b9d3d3)
+  * lcms2           (2026-08-10)    branch "master"     (lcms2.9rc1-921-ga5b898c)
+  * libavif         (2026-08-13)    branch "main"       (v1.4.2-61-g93717e95)
+  * libde265        (2026-06-29)    branch "master"     (v0.1-2515-g4d45a6b3)
+  * libheif         (2026-07-10)    branch "master"     (v1.23.1-7-g1a3583bc)
+  * libjxl          (2026-08-11)    branch "main"       (v0.12-snapshot-6-gd089091a)
+  * libpng          (2026-06-26)    branch "libpng18"   (v1.6.58-140-gd1d0abeff)
+  * libraw          (2026-07-18)    branch "master"     (0.22.0-82-ge419de08)
+  * libwebp         (2026-08-14)    branch "main"       (v1.6.0-221-g4fe551df)
+  * qoi             (2026-05-29)    branch "master"     (g97bacc8)
+  * zlib            (2026-04-05)    branch "develop"    (v1.3.2-85-ge3dc0a8)
+
+[1.4.0.3] 2026-08-14
+- Add basic support for WINE for IDM_OPEN_DEFAULT_EDITOR and IDM_EXPLORE
+- Merged misc bug fixes from aviscaerulea fork
+- Fixed toast showing playback speed during animation
+- Fixed crash when toggling random sorting
+- Prevent unneccessary ini writes
+
+[1.4.0.2] 2026-04-11
+- Fixed avif submodule dependency and updated x86 submodule binaries.
+- Use lcms2 with libjpg-turbo for ICC profile handling in JPGs since that's faster than GDIPlus.
+- Added actions IDM_PLAYPAUSE and IDM_TOGGLE_USE_EMBEDDED_COLOR_PROFILES
+- Images loaded via GDIPlus will now also respect the TransparencyMode setting.
+
+[1.4.0.1] 2026-04-08
+- Fixed animation frame dropping
+- Updated to library versions:
+  * 7zip                            (2026-02-12)    v26.0.0
+  * bit7z           git 82f35937    (2026-02-24)    v4.0.11     branch "master"         tag: v4.0.11
+  * dav1d           git b546257     (2025-12-31)    v1.5.3      branch "master"         tag: 1.5.3
+  * lcms2           git 429ea28     (2026-04-07)    v2.19a3     branch "master"         latest
+  * libavif         git 6543b22     (2026-03-20)    v1.4.1      branch "main"           tag: v1.4.1
+  * libde265        git 36ad048     (2026-03-19)    v1.0.18     branch "master"         tag: v1.0.18
+  * libheif         git 62f1b8c     (2026-01-15)    v1.21.2     branch "master"         tag: v1.21.2
+  * libjpeg-turbo   git be08f366    (2026-04-06)    v3.1.5      branch "3.1.x"          latest
+  * libjxl          git 332feb17    (2026-02-09)    v0.11.2     branch "v0.11.x"        tag: v0.11.2
+  * libpng          git ef3787942   (2026-03-27)    v1.8        branch "libpng18"       latest
+  * libraw          git b860248a    (2026-04-06)    v0.22.1     branch "0.22-stable"    tag: 0.22.1
+  * libwebp         git 991170bb    (2025-08-01)    v1.6.0      branch "1.6.0"
+  * qoi             git 6fff9b7     (2026-02-14)                branch "master"
+  * zlib            git 570720b     (2025-12-08)    v1.3.1.2    branch "develop"        tag: v1.3.1.2
+- Added custom actions:
+  * IDM_DELETE_FILE (deletes current image)
+  * IDM_NEXTFILE (moves to next image file, leaves multiframe containers)
+  * IDM_PREVFILE (moves to previous image file, leaves multiframe containers)
+  * IDM_PLAYPAUSENEXT (if current image is animation: play/pause, otherwise go to next image)
+
+[1.4.0.0] 2026-03-12
+- Up- and downsamples images in linear space. This is beneficial for lineart, where lines and edges otherwise come out too dark and screentones can show moiree patterns that don't exist in the actual image. This is of course also a problem with photographs, where image detail of the zoomed down on screen image will come out too dark, and while professional image editing tools like Photoshop and GIMP have been using linear light scaling for a long time, very few image viewers exist that actually give correct output, sticking to a incorrect but faster method of calculation instead. JPEGView_L uses multi-threading and SSE/AVX2 extensions to maintain a high resampling speed (~70% of IrfanView) while not cutting any corners quality-wise.
+More information: http://www.ericbrasseur.org/gamma.html
+- The selection of available downsampling filters have been extended to offer the well understood 'Hermite', 'Mitchell', 'Catrom' for INI setting "DownSamplingFilter".
+More information on how resampling filters work: http://legacy.imagemagick.org/Usage/filter/
+- Support for CBZ and CB7 comic book archive format. Shoutout to [sdneon](https://github.com/sdneon/jpegview) who came up with the implementation
+- Bookmark support for CBZ/CB7 files. Those archives are automatically opened on the page you last closed them on. Bookmarks are stored in "%AppData%\JPEGView\Bookmarks.ini"
+- Custom zoom size for Book Mode as percentage of window height (new INI setting: BookModePageHeight)
+- One instance per folder mode (INI setting: SingleInstance=PerFolder)
+- Smooth scrolling with vsync for panning keys (new INI setting: SmoothPanning=true)
+- Smart panning keys that combine scrolling and jumping to next/previous image based on zoom (new INI setting: SmartPanningKeys=true)
+- Allows using the default file type icons on your system as the JPEGView window icon (new INI setting: TitleBarUseFileIcon=true)
+- Checkerboard background (instead of solid color) mode for files with transparency channel (new INI setting: TransparencyMode=Checkerboard). Implementation again done by [sdneon](https://github.com/sdneon/jpegview) for his own fork.
+- Improved caching. Keeps the 2 images before and after the currently visible in cache. (new INI setting: CacheRange=2)
+- Settings default to a more viewer centric workflow. Just the image - no Bottom Panel, Navigation Panel or Zoom Navigator overlay by default. (Note: This fork uses the same settings file location as the upstream version, "%AppData%\JPEGView", so if an older setting file already exists there, it will use the older settings)
 
 [1.3.46] 2023-10-07
 New features:

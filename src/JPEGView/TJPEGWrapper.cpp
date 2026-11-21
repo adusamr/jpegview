@@ -3,6 +3,7 @@
 #include "TJPEGWrapper.h"
 #include "libjpeg-turbo\include\turbojpeg.h"
 #include "MaxImageDef.h"
+#include "ICCProfileTransform.h"
 
 void * TurboJpeg::ReadImage(int &width,
 					   int &height,
@@ -31,12 +32,24 @@ void * TurboJpeg::ReadImage(int &width,
 		if (abs((double)width * height) > MAX_IMAGE_PIXELS) {
 			outOfMemory = true;
 		} else if (width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION && chromoSubsampling != TJSAMP_UNKNOWN) {
-			pPixelData = new(std::nothrow) unsigned char[TJPAD(width * 3) * height];
+			pPixelData = new(std::nothrow) unsigned char[TJPAD(static_cast<std::size_t>(width) * 3) * height];
 			if (pPixelData != NULL) {
 				nResult = tj3Decompress8(hDecoder, (unsigned char*)buffer, sizebytes, pPixelData, TJPAD(width * 3), TJPF_BGR);
 				if (nResult != 0) {
 					delete[] pPixelData;
 					pPixelData = NULL;
+				} else {
+					unsigned char *iccBuf = NULL;
+					size_t iccSize = 0;
+					nResult = tj3GetICCProfile(hDecoder, &iccBuf, &iccSize);
+					if (nResult == 0) {
+						void* transform = ICCProfileTransform::CreateTransform(iccBuf, iccSize, ICCProfileTransform::FORMAT_BGR);
+						if (transform != NULL) {
+							ICCProfileTransform::DoTransform(transform, pPixelData, pPixelData, width, height, TJPAD(width * 3));
+							ICCProfileTransform::DeleteTransform(transform);
+						}
+					tj3Free(iccBuf);
+					}
 				}
 			} else {
 				outOfMemory = true;

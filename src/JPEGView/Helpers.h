@@ -35,12 +35,28 @@ namespace Helpers {
 		NM_LoopSameDirectoryLevel
 	};
 
+	// Single instance modes
+	enum ESingleInstanceMode {
+		SI_Never,
+		SI_PerFolder,
+		SI_Always
+	};
+	
 	// Auto zoom modes
 	enum EAutoZoomMode {
+		ZM_None,
 		ZM_FitToScreenNoZoom,
 		ZM_FillScreenNoZoom,
 		ZM_FitToScreen,
-		ZM_FillScreen
+		ZM_FillScreen,
+		ZM_BookMode
+	};
+
+	// Transparency modes
+	enum ETransparencyMode {
+		TP_BLEND = 0,
+		TP_CHECKERBOARD,
+		TP_BLEND_INVERSE
 	};
 
 	// Transition effects for full screen slideshow
@@ -100,13 +116,29 @@ namespace Helpers {
 	// Converts the system time to a string
 	CString SystemTimeToString(const SYSTEMTIME &time);
 
+	// Based on: https://github.com/sdneon/jpegview.git
+	// COLORREF is 0x00bbggrr. 0xFF00000 signals we don't use an override color
+	void BlendAlpha(uint32* pImage32, int nWidth, int nHeight, Helpers::ETransparencyMode TransparencyMode);
+
 	// pixel is ARGB, backgroundColor is BGR. Returns ARGB
-	static inline uint32 AlphaBlendBackground(uint32 pixel, COLORREF backgroundColor)
+	// [GF] Note: PsdReader::ReadImage() still calls this directly for "blending the K channel in CMYK images".
+	//		Anything else is going through BlendAlpha().
+	static inline uint32 AlphaBlendBackground(uint32 pixel, COLORREF backgroundColor, bool bUseCheckerboard = false, int x = -1, int y = -1)
 	{
 		uint32 alpha = pixel & 0xFF000000;
 		if (alpha == 0xFF000000)
 			return pixel;
 
+		if (bUseCheckerboard) {
+			//ignore configured backgroundColor, and use white and light gray for checkerboard
+			if (((x & 0x10) && ((y & 0x10) == 0))
+				|| ((y & 0x10) && ((x & 0x10) == 0))) {
+				backgroundColor = 0x00ffffff;
+			} else {
+				backgroundColor = 0x00c0c0c0;
+			}
+		}
+		
 		uint8 bg_r = GetRValue(backgroundColor);
 		uint8 bg_g = GetGValue(backgroundColor);
 		uint8 bg_b = GetBValue(backgroundColor);
@@ -114,6 +146,7 @@ namespace Helpers {
 		if (alpha == 0) {
 			return (bg_r << 16) + (bg_g << 8) + (bg_b);
 		} else {
+/*
 			uint8 r = (pixel >> 16) & 0xFF;
 			uint8 g = (pixel >>  8) & 0xFF;
 			uint8 b = (pixel      ) & 0xFF;
@@ -125,6 +158,22 @@ namespace Helpers {
 				(  (uint8)(((r * a + bg_r * one_minus_a) / 255.0) + 0.5) << 16) +
 				(  (uint8)(((g * a + bg_g * one_minus_a) / 255.0) + 0.5) <<  8) + 
 				(  (uint8)(((b * a + bg_b * one_minus_a) / 255.0) + 0.5)      );
+*/
+			// From https://github.com/aviscaerulea/jpegview-nt.git
+			// Integer division by 255: (v + 128 + ((v + 128) >> 8)) >> 8
+			// This code performs about 30% faster than the original one above and gives bit-identical results.
+
+			uint32 a = alpha >> 24;
+			uint32 one_minus_a = 255 - a;
+			uint32 vr = ((pixel >> 16) & 0xFF) * a + bg_r * one_minus_a;
+			uint32 vg = ((pixel >>  8) & 0xFF) * a + bg_g * one_minus_a;
+			uint32 vb = ((pixel      ) & 0xFF) * a + bg_b * one_minus_a;
+
+			return
+				0xFF000000 |
+				(((vr + 128 + ((vr + 128) >> 8)) >> 8) << 16) |
+				(((vg + 128 + ((vg + 128) >> 8)) >> 8) <<  8) |
+				(((vb + 128 + ((vb + 128) >> 8)) >> 8)      );
 		}
 }
 
@@ -134,7 +183,7 @@ namespace Helpers {
 	// Outputs also the zoom factor to resize to this new size.
 	// nWidth, nHeight are the original image width and height
 	CSize GetImageRect(int nWidth, int nHeight, int nScreenWidth, int nScreenHeight, 
-		bool bAllowZoomIn, bool bFillCrop, bool bLimitAR, double & dZoom);
+		bool bAllowZoomIn, bool bFillCrop, bool bLimitAR, EAutoZoomMode eAutoZoomMode, double & dZoom);
 
 	// Gets the image size to be used when fitting the image to screen according to the auto zoom mode given
 	CSize GetImageRect(int nWidth, int nHeight, int nScreenWidth, int nScreenHeight, EAutoZoomMode eAutoZoomMode, double & dZoom);
@@ -162,7 +211,7 @@ namespace Helpers {
 	void GetZoomParameters(float & fZoom, CPoint & offsets, CSize imageSize, CSize windowSize, CRect zoomRect);
 
 	// Gets a window rectangle (in screen coordinates) that fits the given image
-	CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, double& dZoom, CJPEGImage* pImage, bool bForceCenterWindow, bool bKeepAspectRatio, bool bWindowBorderless);
+	CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, double& dZoom, CJPEGImage* pImage, bool bForceCenterWindow, bool bKeepAspectRatio, bool bWindowBorderless, EAutoZoomMode eAutoZoomMode);
 
 	// Gets if the given image can be displayed without sampling down the image.
 	bool CanDisplayImageWithoutResize(HWND hWnd, CJPEGImage* pImage);
@@ -248,6 +297,9 @@ namespace Helpers {
 	// Gets the image format given a file name (uses the file extension)
 	EImageFormat GetImageFormat(LPCTSTR sFileName);
 
+	// Checks if the image format is RAW given a file extension
+	bool IsRawImageFormat(LPCTSTR sExt);
+
 	// Returns the short form of the path (including the short form of the file name)
 	CString GetShortFilePath(LPCTSTR sPath);
 
@@ -264,7 +316,7 @@ namespace Helpers {
 	__int64 GetFileSize(HANDLE hFile);
 
 	// Gets the frame index of the next frame, depending on the index of the last image (relevant if the image is a multiframe image)
-	int GetFrameIndex(CJPEGImage* pImage, bool bNext, bool bPlayAnimation, bool & switchImage);
+	int GetFrameIndex(CJPEGImage* pImage, int iOffset, bool bSwitchFrame, bool & switchImage);
 
 	// Gets an index string of the form [a/b] for multiframe images, empty string for single frame images
 	CString GetMultiframeIndex(CJPEGImage* pImage);
@@ -307,4 +359,19 @@ namespace Helpers {
 	private:
 		CRITICAL_SECTION & m_cs;
 	};
+
+/*GF*/	int NumConcurrentThreads(void);				// Used in "SettingsProvider.cpp" to set "m_nNumCores"
+/*GF*/	CString FormatFileSize(__int64 filesize);
+/*GF*/	bool CanReadAhead(CJPEGImage* pImage);		// Used in StartNewRequestBundle()
+
+	// Read ahead (pre-caching of neighbour images) stops while less than this share of the physical memory is available
+	const int READ_AHEAD_MIN_FREE_PERCENT = 25;
+
+	// True if at least READ_AHEAD_MIN_FREE_PERCENT of the physical memory is available (a snapshot only: other processes
+	// may take the memory a moment later). Also true if the memory cannot be determined.
+	bool StillEnoughFree();
+/*GF*/
+/*GF*/	bool isRunningUnderWine();
+/*GF*/	CString GetUnixPathFromWine(LPCTSTR szDosPath);
+/*GF*/  bool IsLinuxBinaryAvailable(LPCTSTR szUnixPath);
 }

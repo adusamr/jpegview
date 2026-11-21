@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Helpers.h"
+#include "DarkMode.h"
 #include "FileList.h"
 #include "UserCommand.h"
 #include "ProcessParams.h"
@@ -29,6 +30,8 @@ public:
 	double MagentaGreen() { return m_dMagentaGreen; }
 	double YellowBlue() { return m_dYellowBlue; }
 	bool HighQualityResampling() { return m_bHQRS; }
+	// Strong downscaling (target <= 1/4 of the original) uses a cached half size version of the image as source
+	bool IntermediateDownsampling() { return m_bIntermediateDownsampling; }
 	bool DefaultSelectionMode() { return m_bDefaultSelectionMode; }
 	bool ShowFileName() { return m_bShowFileName; }
 	bool ShowFileInfo() { return m_bShowFileInfo; }
@@ -37,6 +40,7 @@ public:
 	bool ShowHistogram() { return m_bShowHistogram; }
 	bool ShowJPEGComments() { return m_bShowJPEGComments; }
 	bool ShowNavPanel() { return m_bShowNavPanel; }
+	bool ShowNavPanelFirstLastButtons() { return m_bShowNavPanelFirstLastButtons; }
 	bool ShowBottomPanel() { return m_bShowBottomPanel; }
 	bool ShowZoomNavigator() { return m_bShowZoomNavigator; }
 	bool ShowFullScreen() { return m_bShowFullScreen; }
@@ -45,6 +49,7 @@ public:
 	float ScaleFactorNavPanel() { return m_fScaleFactorNavPanel; }
 	bool KeepParams() { return m_bKeepParams; }
 	LPCTSTR Language() { return m_sLanguage; }
+	DarkMode::EMode DarkModeSetting() { return m_eDarkMode; }
 	Helpers::CPUType AlgorithmImplementation() { return m_eCPUAlgorithm; }
 	int NumberOfCoresToUse() { return m_nNumCores; }
 	EFilterType DownsamplingFilter() { return m_eDownsamplingFilter; }
@@ -71,7 +76,7 @@ public:
 	Helpers::ETransitionEffect SlideShowTransitionEffect() { return m_eSlideShowTransitionEffect; }
 	int SlideShowEffectTimeMs() { return m_nSlideShowEffectTimeMs; }
 	bool ForceGDIPlus() { return m_bForceGDIPlus; }
-	bool SingleInstance() { return m_bSingleInstance; }
+	Helpers::ESingleInstanceMode SingleInstanceMode() { return m_eSingleInstanceMode; }
 	bool SingleFullScreenInstance() { return m_bSingleFullScreenInstance; }
 	int JPEGSaveQuality() { return m_nJPEGSaveQuality; }
 	int WEBPSaveQuality() { return m_nWEBPSaveQuality; }
@@ -85,7 +90,8 @@ public:
 	bool CropWithoutPromptLosslessJPEG() { return m_bCropWithoutPromptLosslessJPEG; }
 	Helpers::EDeleteConfirmation DeleteConfirmation() { return m_eDeleteConfirmation; }
 	bool AllowFileDeletion() { return m_bAllowFileDeletion; }
-	bool WrapAroundFolder() { return m_bWrapAroundFolder && m_eNavigation == Helpers::NM_LoopDirectory; }
+	// what it means depends on the navigation mode, which can be changed at runtime, see CFileList::WrapsAround()
+	bool WrapAroundFolder() { return m_bWrapAroundFolder; }
 	bool ExchangeXButtons() { return m_bExchangeXButtons; }
 	bool AutoRotateEXIF() { return m_bAutoRotateEXIF; }
 	bool UseEmbeddedColorProfiles() { return m_bUseEmbeddedColorProfiles; }
@@ -185,6 +191,17 @@ public:
 	// Get the file name (without path) of the user INI file
 	LPCTSTR GetINIFileTitle() { return m_sIniFileTitle; }
 
+/*GF*/	int BookModePageHeight() { return m_nBookModePageHeight; }
+/*GF*/	bool BookModeLaunchFullscreen() { return m_bBookModeLaunchFullscreen; }
+/*GF*/	bool AllowSmoothPanning() { return m_bSmoothPanning; }
+/*GF*/	bool SmartPanningKeys() { return m_bSmartPanningKeys; }
+/*GF*/	bool TitleBarUseFileIcon() { return m_bTitleBarUseFileIcon; }
+/*GF*/	int CacheRange() { return m_nCacheRange; }
+/*GF*/	Helpers::ETransparencyMode TransparencyMode() {return m_eTransparencyMode; }
+/*GF*/	void SetBookModePageHeight(int nBookModePageHeight) { m_nBookModePageHeight = nBookModePageHeight; }
+/*GF*/	void SetUseEmbeddedColorProfiles(int bUseEmbeddedColorProfiles) { m_bUseEmbeddedColorProfiles = bUseEmbeddedColorProfiles; }
+/*GF*/	void SaveCustomSettings();
+
 private:
 	static CSettingsProvider* sm_instance;
 	CString m_sEXEPath;
@@ -203,6 +220,7 @@ private:
 	double m_dMagentaGreen;
 	double m_dYellowBlue;
 	bool m_bHQRS;
+	bool m_bIntermediateDownsampling;
 	bool m_bDefaultSelectionMode;
 	bool m_bShowFileName;
 	bool m_bShowFileInfo;
@@ -211,6 +229,7 @@ private:
 	bool m_bShowHistogram;
 	bool m_bShowJPEGComments;
 	bool m_bShowNavPanel;
+	bool m_bShowNavPanelFirstLastButtons;
 	bool m_bShowBottomPanel;
 	bool m_bShowZoomNavigator;
 	bool m_bShowFullScreen;
@@ -219,6 +238,7 @@ private:
 	float m_fScaleFactorNavPanel;
 	bool m_bKeepParams;
 	CString m_sLanguage;
+	DarkMode::EMode m_eDarkMode;
 	Helpers::CPUType m_eCPUAlgorithm;
 	int m_nNumCores;
 	EFilterType m_eDownsamplingFilter;
@@ -244,7 +264,7 @@ private:
 	Helpers::ETransitionEffect m_eSlideShowTransitionEffect;
 	int m_nSlideShowEffectTimeMs;
 	bool m_bForceGDIPlus;
-	bool m_bSingleInstance;
+	Helpers::ESingleInstanceMode m_eSingleInstanceMode;
 	bool m_bSingleFullScreenInstance;
 	int m_nJPEGSaveQuality;
 	int m_nWEBPSaveQuality;
@@ -340,4 +360,12 @@ private:
 	void WriteInt(LPCTSTR sKey, int nValue);
 
 	CSettingsProvider(void);
+
+/*GF*/	int m_nBookModePageHeight;
+/*GF*/	bool m_bBookModeLaunchFullscreen;
+/*GF*/	bool m_bSmoothPanning;
+/*GF*/	bool m_bSmartPanningKeys;
+/*GF*/	bool m_bTitleBarUseFileIcon;
+/*GF*/	int m_nCacheRange;
+/*GF*/	Helpers::ETransparencyMode m_eTransparencyMode;
 };

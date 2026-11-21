@@ -25,7 +25,7 @@
 // forward declaration
 static HRESULT CopyWICBitmapToBuffer(IWICBitmapSource *piBitmapSource, byte* pBuffer);
 
-typedef byte* Allocator(int sizeInBytes);
+typedef byte* Allocator(size_t sizeInBytes);
 typedef void Deallocator(byte* buffer);
 
 // Checks if WIC is installed by asking for the WIC imaging factory.
@@ -65,7 +65,7 @@ __declspec(dllexport) byte* __stdcall LoadImageWithWIC(LPCWSTR fileName, Allocat
 			piBitmapFrame->GetSize(width, height);
 			if (*width <= MAX_IMAGE_DIMENSION && *height <= MAX_IMAGE_DIMENSION) {
 				if ((double)*width * *height <= MAX_IMAGE_PIXELS) {
-					bitmapBuffer = allocator(*width * *height * 4);
+					bitmapBuffer = allocator((size_t)*width * *height * 4);
 					if (bitmapBuffer != NULL) {
 						hr = CopyWICBitmapToBuffer(piBitmapFrame, bitmapBuffer);
 						if (!SUCCEEDED(hr)) {
@@ -99,9 +99,15 @@ static HRESULT CopyWICBitmapToBuffer(IWICBitmapSource *piBitmapSource, byte* tar
 	IFS(piFormatConverter->GetSize(&width, &height));
 
 	if (SUCCEEDED(hr)) {
+		// CopyPixels takes the buffer size as UINT, so images with 4 GiB or more must be copied in bands
 		UINT stride = width * 4;
-		WICRect rc = { 0, 0, (int)width, (int)height };
-		IFS(piFormatConverter->CopyPixels(&rc, stride, stride * height, targetBuffer));
+		const UINT maxBandBytes = 256 * 1024 * 1024;
+		UINT bandHeight = max(1u, maxBandBytes / stride);
+		for (UINT y = 0; y < height && SUCCEEDED(hr); y += bandHeight) {
+			UINT h = min(bandHeight, height - y);
+			WICRect rc = { 0, (int)y, (int)width, (int)h };
+			hr = piFormatConverter->CopyPixels(&rc, stride, stride * h, targetBuffer + (size_t)y * stride);
+		}
 	}
 
 	RELEASE_INTERFACE(piFormatConverter);

@@ -11,6 +11,7 @@ CWorkThread::CWorkThread(bool bCoInitialize)
 	: m_csList{ 0 }
 {
 	m_bTerminate = false;
+	m_pCurrent = NULL;
 	m_bCoInitialize = bCoInitialize;
 	::InitializeCriticalSection(&m_csList);
 	m_wakeUp = ::CreateEvent(0, TRUE, FALSE, NULL);
@@ -22,6 +23,16 @@ CWorkThread::~CWorkThread(void) {
 	if (!m_bTerminate) {
 		Terminate();
 	}
+	
+	// キュー残留リクエストの解放
+	// Terminate 完了後はワーカースレッドが動いていないため m_csList は不要だが、安全のため取得する
+	::EnterCriticalSection(&m_csList);
+	for (std::list<CRequestBase*>::iterator iter = m_requestList.begin(); iter != m_requestList.end(); ++iter) {
+		delete *iter;
+	}
+	m_requestList.clear();
+	::LeaveCriticalSection(&m_csList);
+	
 	::DeleteCriticalSection(&m_csList);
 	::CloseHandle(m_wakeUp);
 }
@@ -96,10 +107,14 @@ void CWorkThread::ThreadFunc(void* arg) {
 		std::list<CRequestBase*>::iterator iter;
 		for (iter = thisPtr->m_requestList.begin( ); iter != thisPtr->m_requestList.end( ); iter++ ) {
 			if ((*iter)->Processed == false) {
-				requestHandled = *iter;
+				if (requestHandled == NULL) {
+					requestHandled = *iter;	// pick the first unprocessed in the queue
+				}
 				nNumUnprocessedRequests++;
 			}
 		}
+		// A request that is picked here is not removed from the queue by others (see CImageLoadThread::CancelPendingLoads)
+		thisPtr->m_pCurrent = requestHandled;
 
 		::LeaveCriticalSection(&thisPtr->m_csList);
 
@@ -107,6 +122,9 @@ void CWorkThread::ThreadFunc(void* arg) {
 		if (requestHandled != NULL) {
 			thisPtr->ProcessRequest(*requestHandled);
 			requestHandled->Processed = true;
+			::EnterCriticalSection(&thisPtr->m_csList);
+			thisPtr->m_pCurrent = NULL;
+			::LeaveCriticalSection(&thisPtr->m_csList);
 
 			// signal end of processing
 			if (requestHandled->EventFinished != NULL) {

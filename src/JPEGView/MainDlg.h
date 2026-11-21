@@ -47,12 +47,16 @@ public:
 		POS_Last,
 		POS_Next,
 		POS_NextSlideShow,
-		POS_NextAnimation,
+		POS_NextFrame,
 		POS_Previous,
 		POS_Current,
 		POS_Clipboard,
 		POS_Toggle,
-		POS_AwayFromCurrent
+		POS_AwayFromCurrent,
+		POS_Next_Folder,
+		POS_Previous_Folder,
+		POS_NextFile,
+		POS_PreviousFile
 	};
 
 	CMainDlg(bool bForceFullScreen);
@@ -93,6 +97,9 @@ public:
 		MESSAGE_HANDLER(WM_CLOSE, OnClose)
 		MESSAGE_HANDLER(WM_LOAD_FILE_ASYNCH, OnLoadFileAsynch)
 		MESSAGE_HANDLER(WM_COPYDATA, OnAnotherInstanceStarted) 
+/*GF*/	MESSAGE_HANDLER(WM_RBUTTONDBLCLK, OnRButtonDown)
+/*GF*/	MESSAGE_HANDLER(WM_MBUTTONDBLCLK, OnMButtonDown)
+/*GF*/	MESSAGE_HANDLER(WM_REFRESHVIEW, OnRefreshView)		// (to refresh the view from another app when window is not in foreground)
 		COMMAND_ID_HANDLER(IDOK, OnOK)
 		COMMAND_ID_HANDLER(IDCANCEL, OnCancel)
 	END_MSG_MAP()
@@ -138,6 +145,7 @@ public:
 	LRESULT OnAnotherInstanceStarted(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnLoadFileAsynch(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 	LRESULT OnClose(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
+/*GF*/	LRESULT OnRefreshView(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM lParam, BOOL& /*bHandled*/);
 
 	// Called by main()
 	void SetStartupInfo(LPCTSTR sStartupFile, int nAutostartSlideShow, Helpers::ESorting eSorting, Helpers::ETransitionEffect eEffect, 
@@ -203,7 +211,7 @@ public:
 	void DisplayFileName(const CRect& imageProcessingArea, CDC& dc, double realizedZoom);
 	void BlendBlackRect(CDC & targetDC, CPanel& panel, float fBlendFactor);
 
-	void UpdateWindowTitle();
+	void UpdateWindowTitle(bool bForce = false);
 	void MouseOff();
 	void MouseOn();
 	void GotoImage(EImagePosition ePos);
@@ -239,7 +247,7 @@ private:
 	bool m_bAutoExit;
 	Helpers::ESorting m_eForcedSorting; // forced sorting mode on command line
 	CFileList* m_pFileList; // used for navigation
-	CDirectoryWatcher* m_pDirectoryWatcher; // notifies the main window when the current file changed or a file in the current directory was added or deleted
+	CDirectoryWatcher* m_pDirectoryWatcher = NULL; // notifies the main window when the current file changed or a file in the current directory was added or deleted
 	CJPEGProvider * m_pJPEGProvider; // reads image (of any format, not only JPEGs) files, using read ahead
 	CJPEGImage * m_pCurrentImage; // currently displayed image
 	bool m_bOutOfMemoryLastImage; // true if the last image could not be requested because not enough memory
@@ -261,6 +269,7 @@ private:
 	Helpers::EAutoZoomMode m_eAutoZoomModeWindowed;
 	Helpers::EAutoZoomMode m_eAutoZoomModeFullscreen;
 	Helpers::EAutoZoomMode m_autoZoomFitToScreen;
+	Helpers::ESorting m_eSortModeBeforeRandom;
 	bool m_isUserFitToScreen;
 
 	CImageProcessingParams* m_pImageProcParams;
@@ -341,12 +350,14 @@ private:
 	bool m_bUseLosslessWEBP;
 	bool m_isBeforeFileSelected;
 	double m_dLastImageDisplayTime;
+	Helpers::ETransparencyMode m_eTransparencyMode; //for transparent background
+	bool m_bUseEmbeddedColorProfiles;
 	bool m_bWindowBorderless;
 	bool m_bAlwaysOnTop;
 	bool m_bSelectZoom;  // keeps track of select-to-zoom mode when CTRL+SHIFT+LMouse
 
 	void ExploreFile();
-	bool OpenFileWithDialog(bool bFullScreen, bool bAfterStartup);
+	bool OpenFileWithDialog(bool bAfterStartup);
 	void OpenFile(LPCTSTR sFileName, bool bAfterStartup);
 	bool SaveImage(bool bFullSize);
 	bool SaveImageNoPrompt(LPCTSTR sFileName, bool bFullSize);
@@ -355,6 +366,8 @@ private:
 	void HandleUserCommands(uint32 virtualKeyCode);
 	void ExecuteUserCommand(CUserCommand* pUserCommand);
 	void GotoImage(EImagePosition ePos, int nFlags);
+	// Lets the directory watcher watch the folder of the shown file list
+	void WatchCurrentDirectory();
 	void AdjustLDC(int nMode, double dInc);
 	void AdjustGamma(double dFactor);
 	void AdjustContrast(double dInc);
@@ -372,7 +385,7 @@ private:
 	void InitParametersForNewImage();
 	void ExchangeProcessingParams();
 	void SaveParameters();
-	void AfterNewImageLoaded(bool bSynchronize, bool bAfterStartup, bool noAdjustWindow);
+	void AfterNewImageLoaded(bool bSynchronize, bool bAfterStartup, bool noAdjustWindow, bool bMoveBack = false);
 	CRect ScreenToDIB(const CSize& sizeDIB, const CRect& rect);
 	void ToggleMonitor();
 	CRect GetZoomTextRect(CRect imageProcessingArea);
@@ -393,4 +406,40 @@ private:
 	void AdjustAnimationFrameTime();
 	void StopAnimation();
 	void ToggleAlwaysOnTop();
+
+/*##################################################################*/
+/* Custom private functions and variables of the linear scaling mod */
+/*##################################################################*/
+	HMODULE m_hmodDwmapi;
+	BOOL m_bDWMenabled;
+	typedef HRESULT (WINAPI *MyDwmIsCompositionEnabledType)(BOOL*);
+	typedef HRESULT (WINAPI *MyDwmFlushType)(void);
+	MyDwmFlushType m_DynDwmFlush;
+
+	bool m_bIsRunningUnderWine;
+
+	WINDOWPLACEMENT m_storedWindowPlacement2;	// position for windowed mode
+	bool m_bShowInfo;
+	bool m_bPanTimerActive;
+	int m_nBookModePageHeight;
+	bool  m_bAllowSmoothPanning;
+	CPoint m_offsets_custom;
+
+	void ChangeFolderLanguage();
+	void OpenDefaultEditor();
+
+	CString ReplaceNoCase(LPCTSTR instr,LPCTSTR oldstr,LPCTSTR newstr);
+	CString LoadBookmark(LPCTSTR sFilePath);
+	void SaveBookmark();
+	bool IsBookModeFile(LPCTSTR sFilePath);
+	float MaxRatio(float valA, float valB);
+
+
+	// [sdneon] Toast stuff
+	CString m_strToast;
+	void SetToast(LPCTSTR a_strToast, DWORD a_nDurationMs = 3000);
+	void SetToastIfEmpty(LPCTSTR a_strToast, DWORD a_nDurationMs = 3000);
+	void ToastSortingMode(Helpers::ESorting nSortMode, bool bUpCounting);
+	
+	int m_customAnimationFrameTime;
 };

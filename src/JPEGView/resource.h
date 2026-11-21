@@ -147,16 +147,19 @@
 #define IDM_SAVE_SCREEN		1501		// :KeyMap: save to file in screen size
 #define IDM_SAVE_ALLOW_NO_PROMPT	1502		// :KeyMap: save to file in original size, allow overwrite without prompt when option 'OverwriteOriginalFileWithoutSaveDialog=true' is enabled in INI
 #define IDM_RELOAD			1600		// :KeyMap: reload image
+#define IDM_RELOAD_FULL		1610		// :KeyMap: reload image and file list
 #define IDM_PRINT			1700		// :KeyMap: print image
 #define IDM_COPY			2000		// :KeyMap: copy image to clipboard in screen size
 #define IDM_COPY_FULL		2500		// :KeyMap: copy image to clipboard in original size
 #define IDM_COPY_PATH		2525		// :KeyMap: copy image path to clipboard
+#define IDM_CUT_FILE		2530		// :KeyMap: cut image file to clipboard (for paste action in file manager)
 #define IDM_PASTE			2550		// :KeyMap: paste image from clipboard
 #define IDM_BATCH_COPY		2600		// :KeyMap: open batch copy dialog
 #define IDM_RENAME			2610		// :KeyMap: rename current file, only works when image processing panel can be shown (i.e. panel not disabled in INI and window size is big enough)
 #define IDM_MOVE_TO_RECYCLE_BIN 2620		// :KeyMap: delete the current file on disk - no confirmation (by moving it to the recycle bin)
 #define IDM_MOVE_TO_RECYCLE_BIN_CONFIRM 2621		// :KeyMap: delete the current file on disk - with user confirmation (by moving it to the recycle bin)
 #define IDM_MOVE_TO_RECYCLE_BIN_CONFIRM_PERMANENT_DELETE 2622		// :KeyMap: delete the current file on disk - confirmation when no recycle bin for this drive
+#define IDM_DELETE_FILE		2623		// :KeyMap: delete file completely
 #define IDM_TOUCH_IMAGE		2700		// :KeyMap: set modification time to current time
 #define IDM_TOUCH_IMAGE_EXIF 2710		// :KeyMap: set modification time to EXIF time
 #define IDM_TOUCH_IMAGE_EXIF_FOLDER 2720		// :KeyMap: set modification time to EXIF time for all images in folder
@@ -169,6 +172,11 @@
 #define IDM_PREV			5000		// :KeyMap: go to previous image
 #define IDM_FIRST			5100		// :KeyMap: go to first image
 #define IDM_LAST			5200		// :KeyMap: go to last image
+#define IDM_NEXTFILE		5300		// :KeyMap: go to next image file (leave multiframe container)
+#define IDM_PREVFILE		5301		// :KeyMap: go to previous image file (leave multiframe container)
+#define IDM_PLAYPAUSENEXT	5302		// :KeyMap: if current image is animation: play/pause, otherwise go to next image
+#define IDM_PLAYPAUSE		5303		// :KeyMap: if current image is animation: play/pause
+#define IDM_NEXTFRAME       5304		// :KeyMap: go to next frame (in multiframe container)
 #define IDM_LOOP_FOLDER		6000		// :KeyMap: set navigation mode loop through folder
 #define IDM_LOOP_RECURSIVELY 6010		// :KeyMap: set navigation mode loop through folder and subfolders
 #define IDM_LOOP_SIBLINGS	6020		// :KeyMap: set navigation mode loop through folders on same level
@@ -181,14 +189,17 @@
 #define IDM_SORT_DESCENDING 7110		// :KeyMap: sort descending (decreasing in value, e.g. Z->A, 9->0)
 #define IDM_SLIDESHOW_RESUME 7399		// :KeyMap: resume slide show (after stop)
 #define IDM_SLIDESHOW_START 7400
-#define IDM_SLIDESHOW_1		7401
-#define IDM_SLIDESHOW_2		7402
-#define IDM_SLIDESHOW_3		7403
-#define IDM_SLIDESHOW_4		7404
-#define IDM_SLIDESHOW_5		7405
-#define IDM_SLIDESHOW_7		7407
-#define IDM_SLIDESHOW_10	7410
-#define IDM_SLIDESHOW_20	7420
+#define IDM_SLIDESHOW_1		7401		// :KeyMap: start slide show with 1 second timer
+#define IDM_SLIDESHOW_2		7402		// :KeyMap: start slide show with 2 second timer
+#define IDM_SLIDESHOW_3		7403		// :KeyMap: start slide show with 3 second timer
+#define IDM_SLIDESHOW_4		7404		// :KeyMap: start slide show with 4 second timer
+#define IDM_SLIDESHOW_5		7405		// :KeyMap: start slide show with 5 second timer
+#define IDM_SLIDESHOW_6		7406		// :KeyMap: start slide show with 6 second timer
+#define IDM_SLIDESHOW_7		7407		// :KeyMap: start slide show with 7 second timer
+#define IDM_SLIDESHOW_8		7408		// :KeyMap: start slide show with 8 second timer
+#define IDM_SLIDESHOW_9		7409		// :KeyMap: start slide show with 9 second timer
+#define IDM_SLIDESHOW_10	7410		// :KeyMap: start slide show with 10 second timer
+#define IDM_SLIDESHOW_20	7420		// :KeyMap: start slide show with 20 second timer
 #define IDM_EFFECT_NONE     7450
 #define IDM_EFFECT_BLEND    7451
 #define IDM_EFFECT_SLIDE_RL 7452
@@ -209,12 +220,15 @@
 #define IDM_EFFECTTIME_SLOW  7473
 #define IDM_EFFECTTIME_VERY_SLOW  7474
 #define IDM_MOVIE_START_FPS 7500 // Pseudo entry (diff of the rest of the IDM_MOVIE_* values used to calculate actual FPS)
-#define IDM_MOVIE_5_FPS		7505
-#define IDM_MOVIE_10_FPS	7510
-#define IDM_MOVIE_25_FPS	7525
-#define IDM_MOVIE_30_FPS	7530
-#define IDM_MOVIE_50_FPS	7550
-#define IDM_MOVIE_100_FPS	7600
+#define IDM_MOVIE_5_FPS		7505		// :KeyMap: Start animating at 5 fps
+#define IDM_MOVIE_10_FPS	7510		// :KeyMap: Start animating at 10 fps
+#define IDM_MOVIE_15_FPS	7515		// :KeyMap: Start animating at 15 fps
+#define IDM_MOVIE_20_FPS	7520		// :KeyMap: Start animating at 20 fps
+#define IDM_MOVIE_25_FPS	7525		// :KeyMap: Start animating at 25 fps
+#define IDM_MOVIE_30_FPS	7530		// :KeyMap: Start animating at 30 fps
+#define IDM_MOVIE_50_FPS	7550		// :KeyMap: Start animating at 50 fps
+#define IDM_MOVIE_60_FPS	7560		// :KeyMap: Start animating at 60 fps
+#define IDM_MOVIE_100_FPS	7600		// :KeyMap: Start animating at 100 fps
 #define IDM_ROTATE_90		8000		// :KeyMap: rotate image 90 deg
 #define IDM_ROTATE_270		9000		// :KeyMap: rotate image 270 deg
 #define IDM_ROTATE          9100		// :KeyMap: show free rotation dialog
@@ -254,10 +268,20 @@
 #define IDM_ZOOM_INC		12100		// :KeyMap: zoom in
 #define IDM_ZOOM_DEC		12200		// :KeyMap: zoom out
 #define IDM_ZOOM_MODE		12300
-#define IDM_AUTO_ZOOM_FIT_NO_ZOOM	12500		// :KeyMap: set auto zoom mode fit to screen, never zoom
-#define IDM_AUTO_ZOOM_FILL_NO_ZOOM	12510		// :KeyMap: set auto zoom mode fill screen, never zoom
-#define IDM_AUTO_ZOOM_FIT	12520		// :KeyMap: set auto zoom mode fit to screen
-#define IDM_AUTO_ZOOM_FILL	12530		// :KeyMap: set auto zoom mode fill screen
+
+#define IDM_TOGGLE_SORT_RANDOM	12450		// :KeyMap: toggle between random and name sort
+#define IDM_TOGGLE_INFO_OVERLAY	12452		// :KeyMap: toggle custom overlay
+#define IDM_CHANGE_FOLDER_LANGUAGE	12453	// :KeyMap: jump between different language folders (varying in endings like " [en]", " [de]", " [ko]")
+#define IDM_OPEN_DEFAULT_EDITOR		12454	// :KeyMap: open image with default registry edit action of this file type
+#define IDM_TOGGLE_AUTO_ZOOM_FIT	12455	// :KeyMap: toggle auto zoom mode "BookMode (Default) <-> Fit " and "Fit (Default) <-> None"
+#define IDM_TOGGLE_USE_EMBEDDED_COLOR_PROFILES	12456	// :KeyMap: toggle INI setting "UseEmbeddedColorProfiles"
+
+#define IDM_AUTO_ZOOM_NONE	12500		// :KeyMap: set auto zoom mode disabled
+#define IDM_AUTO_ZOOM_FIT_NO_ZOOM	12510		// :KeyMap: set auto zoom mode fit to screen, never zoom
+#define IDM_AUTO_ZOOM_FILL_NO_ZOOM	12520		// :KeyMap: set auto zoom mode fill screen, never zoom
+#define IDM_AUTO_ZOOM_FIT	12530		// :KeyMap: set auto zoom mode fit to screen
+#define IDM_AUTO_ZOOM_FILL	12540		// :KeyMap: set auto zoom mode fill screen
+#define IDM_AUTO_ZOOM_BOOK_MODE	12550		// :KeyMap: set auto zoom mode to book mode
 #define IDM_EDIT_GLOBAL_CONFIG 12600		// :KeyMap: edit global configuration
 #define IDM_EDIT_USER_CONFIG   12610		// :KeyMap: edit user configuration
 #define IDM_MANAGE_OPEN_WITH_MENU 12612
@@ -272,6 +296,7 @@
 #define IDM_MARK_FOR_TOGGLE			14101		// :KeyMap: mark current image for toggling
 #define IDM_COLOR_CORRECTION_INC	14200		// :KeyMap: increase color correction amount
 #define IDM_COLOR_CORRECTION_DEC	14201		// :KeyMap: decrease color correction amount
+#define IDM_TOGGLE_TRANSPARENCY	    14202		// :KeyMap: toggle transparency mode
 #define IDM_CONTRAST_CORRECTION_INC	14300		// :KeyMap: increase contrast correction amount
 #define IDM_CONTRAST_CORRECTION_DEC	14301		// :KeyMap: decrease contrast correction amount
 #define IDM_CONTRAST_INC	14400		// :KeyMap: increase contrast

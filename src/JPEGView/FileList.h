@@ -2,8 +2,6 @@
 
 #include "Helpers.h"
 
-class CDirectoryWatcher;
-
 // Entry in the file list, allowing sorting by different sort criteria
 class CFileDesc 
 {
@@ -59,7 +57,9 @@ public:
 	// (must end with backslash in this case) or a text file containing file names to display.
 	// Supported text file encodings are ANSI, Unicode or UTF-8.
 	// nLevel is increased when recursively create lists for sub-folders
-	CFileList(const CString & sInitialFile, CDirectoryWatcher & directoryWatcher, 
+	// The list does not touch the directory watcher: it also creates lists of other folders while searching
+	// the next folder of the loop. The owner watches CurrentDirectory() of the list it shows.
+	CFileList(const CString & sInitialFile,
 		Helpers::ESorting eInitialSorting, bool isSortedAscending, bool bWrapAroundFolder, int nLevel = 0, bool forceSorting = false);
 	~CFileList();
 
@@ -80,10 +80,14 @@ public:
 	CFileList* Next();
 	// Move to previous file in list. The filelist object of the prev item is returned.
 	CFileList* Prev();
-	// Move to first file in current folder (according to sort order)
-	void First();
-	// Move to last file in current folder (according to sort order)
-	void Last();
+	// Move to first file (according to sort order): of the current folder, or in the LoopSameFolderLevel and
+	// LoopSubFolders modes of the first folder of the loop containing images. The filelist object of that file is returned.
+	CFileList* First();
+	// Move to last file (according to sort order): of the current folder, or in the LoopSameFolderLevel and
+	// LoopSubFolders modes of the last folder of the loop containing images. The filelist object of that file is returned.
+	CFileList* Last();
+	// Returns if navigation wraps around from the last to the first file and vice versa in the current navigation mode
+	bool WrapsAround() const;
 	// Move away from current image, either forward or backward (if on last image)
 	CFileList* AwayFromCurrent();
 	// Filename (with path) of the current item in the list, NULL if none
@@ -145,18 +149,26 @@ public:
 	// delete the chain of CFileLists forward and backward and only leave the current node alive
 	void DeleteHistory(bool onlyForward = false);
 
+/*GF*/	bool IsEndpoint();	// Check if at the beginning or end of the file list. Used by custom function SaveBookmark()
+/*GF*/	LPCTSTR GetFileMarkedForToggle();
+
 private:
 	static Helpers::ENavigationMode sm_eMode;
 
 	bool m_bDeleteHistory;
 	bool m_bIsSlideShowList;
 	bool m_bWrapAroundFolder;
-	int m_nLevel;
+	int m_nLevel; // LoopSubFolders: depth of this folder below the start folder of the loop
 	CString m_sInitialFile;
 	CString m_sDirectory;
 	// filelists for several folders are chained
 	CFileList* m_next;
 	CFileList* m_prev;
+	// LoopSameFolderLevel and LoopSubFolders: the chain is a cache of the folders of the loop loaded so far,
+	// in folder order. These flags are true if it is known that no other folder of the loop with images lies
+	// between this folder and m_next (m_prev), so the folders on disk need not be enumerated again.
+	bool m_bNextIsAdjacent;
+	bool m_bPrevIsAdjacent;
 	std::list<CFileDesc> m_fileList;
 	std::list<CFileDesc>::iterator m_iter; // current position in m_fileList
 	std::list<CFileDesc>::iterator m_iterStart; // start of iteration in m_fileList
@@ -166,17 +178,25 @@ private:
 	CString m_sMarkedFileCurrent;
 	int m_nMarkedIndexShow;
 
-	CDirectoryWatcher & m_directoryWatcher;
-
 	void MoveIterToLast();
 	void NextInFolder();
-	CFileList* GotoFirstShown();
 	std::list<CFileDesc>::iterator FindFile(const CString& sName);
-	CFileList* FindFileRecursively (const CString& sDirectory, const CString& sFindAfter, 
-		bool bSearchThisFolder, int nLevel, int nRecursion);
-	CFileList* TryCreateFileList(const CString& directory, int nNewLevel);
-	CFileList* WrapToNextImage();
-	CFileList* WrapToPrevImage();
+	bool UsesStartFileAsLoopStart() const;
+	// LoopSameFolderLevel and LoopSubFolders: all folders of the loop form one file list, see NextInFolderList()
+	CFileList* NextInFolderList();
+	CFileList* PrevInFolderList();
+	CFileList* AdjacentFolder(bool bForward);
+	CFileList* OuterFolder(bool bFirst);
+	bool GetSiblingFolders(CString& sParentDir, std::list<CString>& dirList) const;
+	CFileList* AdjacentSiblingFolder(bool bForward);
+	CFileList* OuterSiblingFolder(bool bFirst);
+	CFileList* AdjacentSubFolder(bool bForward);
+	CFileList* OuterSubFolder(bool bFirst);
+	CString RootDirectory() const;
+	CFileList* GetFolderList(const CString& sDirectory, int nLevel);
+	void InsertAfter(CFileList* pList, bool bAdjacent);
+	void InsertBefore(CFileList* pList, bool bAdjacent);
+	void Unlink();
 	void FindFiles();
 	void VerifyFiles();
 	bool IsImageFile(const CString & sEnding);

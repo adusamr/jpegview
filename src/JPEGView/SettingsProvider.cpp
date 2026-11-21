@@ -121,6 +121,7 @@ CSettingsProvider::CSettingsProvider(void) {
 	m_fBlendFactorNavPanel = (float)GetDouble(_T("BlendFactorNavPanel"), 0.5, 0.0, 1.0);
 	m_fScaleFactorNavPanel = (float)GetDouble(_T("ScaleFactorNavPanel"), 1.0, 0.8, 2.5);
 
+
 	CString sCPU = GetString(_T("CPUType"), _T("AutoDetect"));
 	if (sCPU.CompareNoCase(_T("Generic")) == 0) {
 		m_eCPUAlgorithm = Helpers::CPU_Generic;
@@ -137,22 +138,75 @@ CSettingsProvider::CSettingsProvider(void) {
 	else {
 		m_eCPUAlgorithm = Helpers::ProbeCPU();
 	}
-	m_nNumCores = GetInt(_T("CPUCoresUsed"), 0, 0, 4);
+
+
+	m_nNumCores = GetInt(_T("CPUCoresUsed"), 0, 0, 128);
 	if (m_nNumCores == 0) {
-		m_nNumCores = Helpers::NumCoresPerPhysicalProc();
-		if (m_nNumCores > 4) m_nNumCores = 4;
+		//m_nNumCores = Helpers::NumCoresPerPhysicalProc();
+		m_nNumCores = Helpers::NumConcurrentThreads();
+		// Limiting to 8 cores, since benchmarks suggest performance improvements start to flatline around that point.
+		// Performance can even become worse: 16 threads on 16 thread CPU performing worse than running just 14 threads. Or 8 threads, for that matter.
+		// People can still try to use more cores by specifying a non-zero number for "CPUCoresUsed",
+		// but I advise to do some benchmarking in this case to make sure you aren't actually shooting yourself in the foot.		
+		if (m_nNumCores > 8) m_nNumCores = 8;
 	}
 
-	CString sDownSampling = GetString(_T("DownSamplingFilter"), _T("BestQuality"));
+
+	CString sDownSampling = GetString(_T("DownSamplingFilter"), _T("Catrom"));
 	if (sDownSampling.CompareNoCase(_T("NoAliasing")) == 0) {
 		m_eDownsamplingFilter = Filter_Downsampling_No_Aliasing;
 	}
 	else if (sDownSampling.CompareNoCase(_T("Narrow")) == 0) {
 		m_eDownsamplingFilter = Filter_Downsampling_Narrow;
 	}
-	else {
+	else if (sDownSampling.CompareNoCase(_T("BestQuality")) == 0) {
 		m_eDownsamplingFilter = Filter_Downsampling_Best_Quality;
 	}
+	else if (sDownSampling.CompareNoCase(_T("None")) == 0) {
+		m_eDownsamplingFilter = Filter_Downsampling_None;
+	}
+	else if (sDownSampling.CompareNoCase(_T("Hermite")) == 0) {
+		m_eDownsamplingFilter = Filter_Downsampling_Hermite;
+	}
+	else if (sDownSampling.CompareNoCase(_T("Mitchell")) == 0) {
+		m_eDownsamplingFilter = Filter_Downsampling_Mitchell;
+	}
+	else if (sDownSampling.CompareNoCase(_T("Catrom")) == 0) {
+		m_eDownsamplingFilter = Filter_Downsampling_Catrom;
+	}
+	else if (sDownSampling.CompareNoCase(_T("Lanczos2")) == 0) {
+		m_eDownsamplingFilter = Filter_Downsampling_Lanczos2;
+	}
+	else {
+		m_eDownsamplingFilter = Filter_Downsampling_Catrom;
+	}
+
+
+	m_bIntermediateDownsampling = GetBool(_T("IntermediateDownsampling"), true);
+
+	CString sSingleInstanceMode = GetString(_T("SingleInstance"), _T("PerFolder"));
+	if (sSingleInstanceMode.CompareNoCase(_T("Never")) == 0) {
+		m_eSingleInstanceMode = Helpers::SI_Never;
+	} else if (sSingleInstanceMode.CompareNoCase(_T("PerFolder")) == 0) {
+		m_eSingleInstanceMode = Helpers::SI_PerFolder;
+	} else if (sSingleInstanceMode.CompareNoCase(_T("Always")) == 0) {
+		m_eSingleInstanceMode = Helpers::SI_Always;
+	} else {
+		m_eSingleInstanceMode = Helpers::SI_PerFolder;
+	}
+
+
+	CString sTransparencyMode = GetString(_T("TransparencyMode"), _T("Checkerboard"));
+	if (sTransparencyMode.CompareNoCase(_T("Blend")) == 0) {
+		m_eTransparencyMode = Helpers::TP_BLEND;
+	} else if (sTransparencyMode.CompareNoCase(_T("Checkerboard")) == 0) {
+		m_eTransparencyMode = Helpers::TP_CHECKERBOARD;
+	} else if (sTransparencyMode.CompareNoCase(_T("BlendInverse")) == 0) {
+		m_eTransparencyMode = Helpers::TP_BLEND_INVERSE;
+	} else {
+		m_eTransparencyMode = Helpers::TP_CHECKERBOARD;
+	}
+
 
 	m_bNavigateMouseWheel = GetBool(_T("NavigateWithMouseWheel"), false);
 	m_dMouseWheelZoomSpeed = GetDouble(_T("MouseWheelZoomSpeed"), 1.0, 0.1, 10);
@@ -171,7 +225,6 @@ CSettingsProvider::CSettingsProvider(void) {
 	m_nMaxSlideShowFileListSize = GetInt(_T("MaxSlideShowFileListSizeKB"), 200, 100, 10000);
 	m_nSlideShowEffectTimeMs = GetInt(_T("SlideShowEffectTime"), 200, 100, 5000);
 	m_bForceGDIPlus = GetBool(_T("ForceGDIPlus"), false);
-	m_bSingleInstance = GetBool(_T("SingleInstance"), false);
 	m_bSingleFullScreenInstance = GetBool(_T("SingleFullScreenInstance"), true);
 	m_nJPEGSaveQuality = GetInt(_T("JPEGSaveQuality"), 85, 0, 100);
 	m_nWEBPSaveQuality = GetInt(_T("WEBPSaveQuality"), 85, 0, 100);
@@ -295,15 +348,27 @@ CSettingsProvider::CSettingsProvider(void) {
 		m_sWallpaperPath = tempPath;
 	}
 	else {
-		TCHAR buffer[MAX_PATH];
-		if (::ExpandEnvironmentStrings(m_sWallpaperPath, (LPTSTR)buffer, MAX_PATH)) {
-			m_sWallpaperPath = buffer;
+		DWORD nLen = ::ExpandEnvironmentStrings(m_sWallpaperPath, NULL, 0); // required size including terminating 0
+		if (nLen > 0) {
+			CString sExpanded;
+			DWORD nCopied = ::ExpandEnvironmentStrings(m_sWallpaperPath, sExpanded.GetBuffer(nLen), nLen);
+			sExpanded.ReleaseBuffer((nCopied > 0 && nCopied <= nLen) ? (int)nCopied - 1 : 0);
+			if (!sExpanded.IsEmpty()) m_sWallpaperPath = sExpanded;
 		}
 	}
 
 	m_bSkipFileOpenDialogOnStartup = GetBool(_T("SkipFileOpenDialogOnStartup"), false);
 
 	m_sLanguage = GetString(_T("Language"), _T("auto"));
+
+	CString sDarkMode = GetString(_T("DarkMode"), _T("auto"));
+	if (sDarkMode.CompareNoCase(_T("true")) == 0) {
+		m_eDarkMode = DarkMode::DM_On;
+	} else if (sDarkMode.CompareNoCase(_T("false")) == 0) {
+		m_eDarkMode = DarkMode::DM_Off;
+	} else {
+		m_eDarkMode = DarkMode::DM_Auto;
+	}
 	m_sGPSMapProvider = GetString(_T("GPSMapProvider"), _T("https://opentopomap.org/#marker=15/{lat}/{lng}"));
 
 	m_sACCExclude = GetString(_T("ACCExclude"), _T("")); 
@@ -334,6 +399,20 @@ CSettingsProvider::CSettingsProvider(void) {
 	}
 
 	m_DefaultFixedCropSize = GetSize(_T("DefaultFixedCropSize"), CSize(320, 200));
+
+// -------------------------------------------------------------------------------------------
+// [GF] Custom non-writable ini settings of this mod
+
+	m_bBookModeLaunchFullscreen = GetBool(_T("BookModeLaunchFullscreen"), true);
+	m_bSmoothPanning = GetBool(_T("SmoothPanning"), true);
+	m_bSmartPanningKeys = GetBool(_T("SmartPanningKeys"), true);
+	m_bTitleBarUseFileIcon = GetBool(_T("TitleBarUseFileIcon"), true);
+
+	// Distance in file list for which decoded images will be kept in cache to speed up access.
+	// The default of 2 means: Two pages forward + two pages backward.
+	m_nCacheRange = GetInt(_T("CacheRange"), 2, 0, 8);
+
+// -------------------------------------------------------------------------------------------
 
 	// read all user commands
 	CString sCmd;
@@ -439,13 +518,29 @@ void CSettingsProvider::ReadWriteableINISettings() {
 	m_eAutoZoomMode = GetAutoZoomMode(_T("AutoZoomMode"), Helpers::ZM_FitToScreenNoZoom);
 	m_eAutoZoomModeFullscreen = GetAutoZoomMode(_T("AutoZoomModeFullscreen"), m_eAutoZoomMode);
 	m_bShowNavPanel = GetBool(_T("ShowNavPanel"), true);
+	m_bShowNavPanelFirstLastButtons = GetBool(_T("ShowNavPanelFirstLastButtons"), true);
 
 	m_bHQRS = GetBool(_T("HighQualityResampling"), true);
-	m_bDefaultSelectionMode = GetBool(_T("DefaultSelectionMode"), true);
+	m_bDefaultSelectionMode = GetBool(_T("DefaultSelectionMode"), true);	// [GF] Note: This values is missing from SaveSettings().
 	m_bShowFileName = GetBool(_T("ShowFileName"), false);
 	m_bShowFileInfo = GetBool(_T("ShowFileInfo"), false);
 	m_bKeepParams = GetBool(_T("KeepParameters"), false);
 	m_eSlideShowTransitionEffect = Helpers::ConvertTransitionEffectFromString(GetString(_T("SlideShowTransitionEffect"), _T("")));
+
+// -------------------------------------------------------------------------------------------
+// [GF] Custom writable ini settings of this mod
+
+	m_nBookModePageHeight = GetInt(_T("BookModePageHeight"), 122, 100, 1000);
+
+// -------------------------------------------------------------------------------------------
+}
+
+void CSettingsProvider::SaveCustomSettings() {
+	MakeSureUserINIExists();
+
+	WriteInt(_T("BookModePageHeight"), m_nBookModePageHeight);
+
+	m_bUserINIExists = true;
 }
 
 void CSettingsProvider::SaveSettings(const CImageProcessingParams& procParams, 
@@ -851,11 +946,23 @@ LPCTSTR CSettingsProvider::GetAutoZoomModeString(Helpers::EAutoZoomMode autoZoom
 	else if (autoZoomMode == Helpers::ZM_FillScreenNoZoom) {
 		return _T("FillNoZoom");
 	}
+	else if (autoZoomMode == Helpers::ZM_None) {
+		return _T("None");
+	}
+	else if (autoZoomMode == Helpers::ZM_BookMode) {
+		return _T("BookMode");
+	}
 	return _T("FitNoZoom");
 }
 
 void CSettingsProvider::WriteString(LPCTSTR sKey, LPCTSTR sString) {
-	::WritePrivateProfileString(SECTION_NAME, sKey, sString, m_sIniNameUser);
+	TCHAR sValueOld[1024];
+	sValueOld[1023] = 0;
+	::GetPrivateProfileString(SECTION_NAME, sKey, _T(""), sValueOld, 1023, m_sIniNameUser);
+
+	if ((sValueOld[0] == 0) || (lstrcmp(sValueOld,sString) != 0)) {
+		::WritePrivateProfileString(SECTION_NAME, sKey, sString, m_sIniNameUser);
+		}
 }
 
 void CSettingsProvider::WriteDouble(LPCTSTR sKey, double dValue) {

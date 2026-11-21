@@ -47,8 +47,8 @@ runs:
           src/JPEGView/libjpeg-turbo/lib/*.lib
           src/JPEGView/libjpeg-turbo/lib64/*.lib
 
-          src/JPEGView/libpng-apng/lib/*.lib
-          src/JPEGView/libpng-apng/lib64/*.lib
+          src/JPEGView/libpng/lib/*.lib
+          src/JPEGView/libpng/lib64/*.lib
 
           src/JPEGView/lcms2/bin/*.dll
           src/JPEGView/lcms2/bin64/*.dll
@@ -74,6 +74,9 @@ runs:
           src/JPEGView/libraw/bin64/*.dll
           src/JPEGView/libraw/lib/*.lib
           src/JPEGView/libraw/lib64/*.lib
+
+          src/JPEGView/bit7z/lib/*.lib
+          src/JPEGView/bit7z/lib64/*.lib
 
     # cache prevents the rebuild-all to happen twice, since each invocation of the workflow (once for x86, once for x64) causes a rebuild
 
@@ -104,7 +107,7 @@ runs:
     - name: libpng
       if: ${{ steps.cache-bin.outputs.cache-hit != 'true' }}
       shell: cmd
-      run: call extras\scripts\build-libpng-apng.bat
+      run: call extras\scripts\build-libpng.bat
 
     - name: lcms2
       if: ${{ steps.cache-bin.outputs.cache-hit != 'true' }}
@@ -115,6 +118,11 @@ runs:
       if: ${{ steps.cache-bin.outputs.cache-hit != 'true' }}
       shell: cmd
       run: call extras\scripts\build-libheif_libavif.bat
+
+    - name: bit7z
+      if: ${{ steps.cache-bin.outputs.cache-hit != 'true' }}
+      shell: cmd
+      run: call extras\scripts\build-bit7z.bat
 
     - name: libraw
       if: ${{ steps.cache-bin.outputs.cache-hit != 'true' }}

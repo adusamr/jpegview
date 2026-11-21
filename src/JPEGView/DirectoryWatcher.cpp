@@ -10,7 +10,7 @@
 static BOOL GetLastModificationTime(LPCTSTR fileName, FILETIME & lastModificationTime)
 {
 	HANDLE hFile = ::CreateFile(fileName, GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
-	if (hFile != NULL) {
+	if (hFile != INVALID_HANDLE_VALUE) {
 		BOOL bSuccess;
 		bSuccess = ::GetFileTime(hFile, NULL, NULL, &lastModificationTime);
 		::CloseHandle(hFile);
@@ -76,16 +76,27 @@ void CDirectoryWatcher::SetCurrentFile(LPCTSTR fileName)
 
 void CDirectoryWatcher::SetCurrentDirectory(LPCTSTR directoryName)
 {
-	TCHAR fullName[MAX_PATH]{ 0 };
-	GetFullPathName(directoryName, MAX_PATH, (LPTSTR)fullName, NULL);
+	// size query first: works also for directories longer than MAX_PATH
+	CString fullName;
+	DWORD nLen = ::GetFullPathName(directoryName, 0, NULL, NULL);
+	if (nLen > 0) {
+		DWORD nCopied = ::GetFullPathName(directoryName, nLen, fullName.GetBuffer(nLen), NULL);
+		fullName.ReleaseBuffer((nCopied > 0 && nCopied < nLen) ? nCopied : 0);
+	}
 
 	::EnterCriticalSection(&m_lock);
 
+	// Already watched: do not set up the change notifications again, this is called on every image change.
+	// If watching it failed (e.g. folder not reachable), try again.
+	bool bAlreadyWatched = !fullName.IsEmpty() && fullName.CompareNoCase(m_sCurrentDirectory) == 0 &&
+		fullName.CompareNoCase(m_sWatchedDirectory) == 0;
 	m_sCurrentDirectory = fullName;
 
 	::LeaveCriticalSection(&m_lock);
 
-	::SetEvent(m_newDirectoryEvent);
+	if (!bAlreadyWatched) {
+		::SetEvent(m_newDirectoryEvent);
+	}
 }
 
 
@@ -105,10 +116,14 @@ void CDirectoryWatcher::ThreadFunc(void* arg) {
 		int numHandles = bSetupNewDirectory ? 2 : 4;
 
 		::EnterCriticalSection(&thisPtr->m_lock);
+		if (bSetupNewDirectory) {
+			thisPtr->m_sWatchedDirectory.Empty();
+		}
 		if (bSetupNewDirectory && !thisPtr->m_sCurrentDirectory.IsEmpty()) {
 			waitHandles[2] = ::FindFirstChangeNotification(thisPtr->m_sCurrentDirectory, FALSE, FILE_NOTIFY_CHANGE_FILE_NAME);
 			if (waitHandles[2] != NULL && waitHandles[2] != INVALID_HANDLE_VALUE)
 			{
+				thisPtr->m_sWatchedDirectory = thisPtr->m_sCurrentDirectory;
 				numHandles++;
 				waitHandles[3] = ::FindFirstChangeNotification(thisPtr->m_sCurrentDirectory, FALSE, FILE_NOTIFY_CHANGE_LAST_WRITE);
 				if (waitHandles[3] != NULL && waitHandles[3] != INVALID_HANDLE_VALUE) {

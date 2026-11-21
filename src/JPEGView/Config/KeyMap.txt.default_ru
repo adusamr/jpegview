@@ -10,10 +10,12 @@
 
 // Раскомментируйте (удалите // в начале) следующую строку, чтобы немедленно прекращать работу JPEGView по Esc при анимации или слайдшоу
 //Esc                     IDM_EXIT
-PgDn                    IDM_NEXT
-Right                   IDM_NEXT
-Left                    IDM_PREV
-PgUp                    IDM_PREV
+PgUp                    IDM_PREVFILE
+PgDn                    IDM_NEXTFILE
+Up                      IDM_PAN_UP
+Down                    IDM_PAN_DOWN
+Left                    IDM_PAN_LEFT
+Right                   IDM_PAN_RIGHT
 Ctrl+Left               IDM_TOGGLE
 Ctrl+Right              IDM_TOGGLE
 Home                    IDM_FIRST
@@ -53,12 +55,6 @@ Ctrl+F12                IDM_TOGGLE_MONITOR
 Space                   IDM_TOGGLE_FIT_TO_SCREEN_100_PERCENTS
 Return                  IDM_FIT_TO_SCREEN
 Ctrl+Return             IDM_FILL_WITH_CROP
-Down                    IDM_ROTATE_90
-Up                      IDM_ROTATE_270
-Shift+Up                IDM_PAN_UP
-Shift+Down              IDM_PAN_DOWN
-Shift+Left              IDM_PAN_LEFT
-Shift+Right             IDM_PAN_RIGHT
 Ctrl+Down               IDM_ZOOM_DEC
 Ctrl+Up                 IDM_ZOOM_INC
 Ctrl+A                  IDM_EXCHANGE_PROC_PARAMS
@@ -82,8 +78,18 @@ Ctrl+R                  IDM_RELOAD
 Alt+R                   IDM_SLIDESHOW_RESUME
 Ctrl+X                  IDM_COPY_FULL
 Ctrl+V                  IDM_PASTE
+Shift+V					IDM_TOGGLE_TRANSPARENCY
 Ctrl+L                  IDM_LANDSCAPE_MODE
 R                       IDM_ROTATE_90_LOSSLESS_CONFIRM
 T                       IDM_ROTATE_270_LOSSLESS_CONFIRM
 W                       IDM_EXPLORE
 Shift+F12               IDM_ALWAYS_ON_TOP
+1						IDM_SLIDESHOW_1
+2						IDM_SLIDESHOW_2
+3						IDM_SLIDESHOW_3
+4						IDM_SLIDESHOW_4
+5						IDM_SLIDESHOW_5
+6						IDM_SLIDESHOW_6
+7						IDM_SLIDESHOW_7
+8						IDM_SLIDESHOW_8
+9						IDM_SLIDESHOW_9

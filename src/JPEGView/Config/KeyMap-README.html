@@ -36,6 +36,10 @@
   content: "reload image"
 }
 
+.IDM_RELOAD_FULL:before {
+  content: "reload image and file list"
+}
+
 .IDM_PRINT:before {
   content: "print image"
 }
@@ -50,6 +54,10 @@
 
 .IDM_COPY_PATH:before {
   content: "copy image path to clipboard"
+}
+
+.IDM_CUT_FILE:before {
+  content: "cut image file to clipboard (for paste action in file manager)"
 }
 
 .IDM_PASTE:before {
@@ -74,6 +82,10 @@
 
 .IDM_MOVE_TO_RECYCLE_BIN_CONFIRM_PERMANENT_DELETE:before {
   content: "delete the current file on disk - confirmation when no recycle bin for this drive"
+}
+
+.IDM_DELETE_FILE:before {
+  content: "delete file completely"
 }
 
 .IDM_TOUCH_IMAGE:before {
@@ -124,6 +136,26 @@
   content: "go to last image"
 }
 
+.IDM_NEXTFILE:before {
+  content: "go to next image file (leave multiframe container)"
+}
+
+.IDM_PREVFILE:before {
+  content: "go to previous image file (leave multiframe container)"
+}
+
+.IDM_PLAYPAUSENEXT:before {
+  content: "if current image is animation: play/pause, otherwise go to next image"
+}
+
+.IDM_PLAYPAUSE:before {
+  content: "if current image is animation: play/pause"
+}
+
+.IDM_NEXTFRAME:before {
+  content: "go to next frame (in multiframe container)"
+}
+
 .IDM_LOOP_FOLDER:before {
   content: "set navigation mode loop through folder"
 }
@@ -166,6 +198,86 @@
 
 .IDM_SLIDESHOW_RESUME:before {
   content: "resume slide show (after stop)"
+}
+
+.IDM_SLIDESHOW_1:before {
+  content: "start slide show with 1 second timer"
+}
+
+.IDM_SLIDESHOW_2:before {
+  content: "start slide show with 2 second timer"
+}
+
+.IDM_SLIDESHOW_3:before {
+  content: "start slide show with 3 second timer"
+}
+
+.IDM_SLIDESHOW_4:before {
+  content: "start slide show with 4 second timer"
+}
+
+.IDM_SLIDESHOW_5:before {
+  content: "start slide show with 5 second timer"
+}
+
+.IDM_SLIDESHOW_6:before {
+  content: "start slide show with 6 second timer"
+}
+
+.IDM_SLIDESHOW_7:before {
+  content: "start slide show with 7 second timer"
+}
+
+.IDM_SLIDESHOW_8:before {
+  content: "start slide show with 8 second timer"
+}
+
+.IDM_SLIDESHOW_9:before {
+  content: "start slide show with 9 second timer"
+}
+
+.IDM_SLIDESHOW_10:before {
+  content: "start slide show with 10 second timer"
+}
+
+.IDM_SLIDESHOW_20:before {
+  content: "start slide show with 20 second timer"
+}
+
+.IDM_MOVIE_5_FPS:before {
+  content: "Start animating at 5 fps"
+}
+
+.IDM_MOVIE_10_FPS:before {
+  content: "Start animating at 10 fps"
+}
+
+.IDM_MOVIE_15_FPS:before {
+  content: "Start animating at 15 fps"
+}
+
+.IDM_MOVIE_20_FPS:before {
+  content: "Start animating at 20 fps"
+}
+
+.IDM_MOVIE_25_FPS:before {
+  content: "Start animating at 25 fps"
+}
+
+.IDM_MOVIE_30_FPS:before {
+  content: "Start animating at 30 fps"
+}
+
+.IDM_MOVIE_50_FPS:before {
+  content: "Start animating at 50 fps"
+}
+
+.IDM_MOVIE_60_FPS:before {
+  content: "Start animating at 60 fps"
+}
+
+.IDM_MOVIE_100_FPS:before {
+  content: "Start animating at 100 fps"
 }
 
 .IDM_ROTATE_90:before {
@@ -312,6 +424,34 @@
   content: "zoom out"
 }
 
+.IDM_TOGGLE_SORT_RANDOM:before {
+  content: "toggle between random and name sort"
+}
+
+.IDM_TOGGLE_INFO_OVERLAY:before {
+  content: "toggle custom overlay"
+}
+
+.IDM_CHANGE_FOLDER_LANGUAGE:before {
+  content: "jump between different language folders (varying in endings like \" [en]\", \" [de]\", \" [ko]\")"
+}
+
+.IDM_OPEN_DEFAULT_EDITOR:before {
+  content: "open image with default registry edit action of this file type"
+}
+
+.IDM_TOGGLE_AUTO_ZOOM_FIT:before {
+  content: "toggle auto zoom mode \"BookMode (Default) <-> Fit \" and \"Fit (Default) <-> None\""
+}
+
+.IDM_TOGGLE_USE_EMBEDDED_COLOR_PROFILES:before {
+  content: "toggle INI setting \"UseEmbeddedColorProfiles\""
+}
+
+.IDM_AUTO_ZOOM_NONE:before {
+  content: "set auto zoom mode disabled"
+}
+
 .IDM_AUTO_ZOOM_FIT_NO_ZOOM:before {
   content: "set auto zoom mode fit to screen, never zoom"
 }
@@ -326,6 +466,10 @@
 
 .IDM_AUTO_ZOOM_FILL:before {
   content: "set auto zoom mode fill screen"
+}
+
+.IDM_AUTO_ZOOM_BOOK_MODE:before {
+  content: "set auto zoom mode to book mode"
 }
 
 .IDM_EDIT_GLOBAL_CONFIG:before {
@@ -366,6 +510,10 @@
 
 .IDM_COLOR_CORRECTION_DEC:before {
   content: "decrease color correction amount"
+}
+
+.IDM_TOGGLE_TRANSPARENCY:before {
+  content: "toggle transparency mode"
 }
 
 .IDM_CONTRAST_CORRECTION_INC:before {
@@ -489,7 +637,6 @@ Last Updated: 31-JAN-2023<br />
 <ul>
     <li>F1 for help</li>
     <li>Alt+F4 for exit</li>
-    <li>0..9 for slide show</li>
 </ul>
 
 <h1>
@@ -502,6 +649,8 @@ The following keys are recognized:
     <li>Esc, Return, Space, End, Home, Back, Tab, PgDn, PgUp</li>
     <li>Left, Right, Up, Down, Insert, Del, Plus, Minus, Mul, Div, Comma, Period</li>
     <li>A .. Z</li>
+    <li>0 .. 9</li>
+    <li>Numpad0 .. Numpad9</li>
     <li>F1 .. F12</li>
 </ul>
 
@@ -559,7 +708,7 @@ but not with other keys or other mouse buttons.
     </b>
     <br />
     <i>
-        -- Last Updated: 2023-03-13T22:28:53.482528+00:00
+        -- Last Updated: 2026-08-27T08:39:06.193236+00:00
     </i>
 </p>
 
@@ -632,6 +781,12 @@ but not with other keys or other mouse buttons.
     </td>
   </tr>
 
+  <tr><td>IDM_RELOAD_FULL</td>
+    <td>
+      <span class="IDM_RELOAD_FULL" />
+    </td>
+  </tr>
+
   <tr><td>IDM_PRINT</td>
     <td>
       <span class="IDM_PRINT" />
@@ -653,6 +808,12 @@ but not with other keys or other mouse buttons.
   <tr><td>IDM_COPY_PATH</td>
     <td>
       <span class="IDM_COPY_PATH" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_CUT_FILE</td>
+    <td>
+      <span class="IDM_CUT_FILE" />
     </td>
   </tr>
 
@@ -689,6 +850,12 @@ but not with other keys or other mouse buttons.
   <tr><td>IDM_MOVE_TO_RECYCLE_BIN_CONFIRM_PERMANENT_DELETE</td>
     <td>
       <span class="IDM_MOVE_TO_RECYCLE_BIN_CONFIRM_PERMANENT_DELETE" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_DELETE_FILE</td>
+    <td>
+      <span class="IDM_DELETE_FILE" />
     </td>
   </tr>
 
@@ -764,6 +931,36 @@ but not with other keys or other mouse buttons.
     </td>
   </tr>
 
+  <tr><td>IDM_NEXTFILE</td>
+    <td>
+      <span class="IDM_NEXTFILE" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_PREVFILE</td>
+    <td>
+      <span class="IDM_PREVFILE" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_PLAYPAUSENEXT</td>
+    <td>
+      <span class="IDM_PLAYPAUSENEXT" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_PLAYPAUSE</td>
+    <td>
+      <span class="IDM_PLAYPAUSE" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_NEXTFRAME</td>
+    <td>
+      <span class="IDM_NEXTFRAME" />
+    </td>
+  </tr>
+
   <tr><td>IDM_LOOP_FOLDER</td>
     <td>
       <span class="IDM_LOOP_FOLDER" />
@@ -827,6 +1024,126 @@ but not with other keys or other mouse buttons.
   <tr><td>IDM_SLIDESHOW_RESUME</td>
     <td>
       <span class="IDM_SLIDESHOW_RESUME" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_1</td>
+    <td>
+      <span class="IDM_SLIDESHOW_1" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_2</td>
+    <td>
+      <span class="IDM_SLIDESHOW_2" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_3</td>
+    <td>
+      <span class="IDM_SLIDESHOW_3" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_4</td>
+    <td>
+      <span class="IDM_SLIDESHOW_4" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_5</td>
+    <td>
+      <span class="IDM_SLIDESHOW_5" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_6</td>
+    <td>
+      <span class="IDM_SLIDESHOW_6" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_7</td>
+    <td>
+      <span class="IDM_SLIDESHOW_7" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_8</td>
+    <td>
+      <span class="IDM_SLIDESHOW_8" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_9</td>
+    <td>
+      <span class="IDM_SLIDESHOW_9" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_10</td>
+    <td>
+      <span class="IDM_SLIDESHOW_10" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_SLIDESHOW_20</td>
+    <td>
+      <span class="IDM_SLIDESHOW_20" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_5_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_5_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_10_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_10_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_15_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_15_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_20_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_20_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_25_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_25_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_30_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_30_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_50_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_50_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_60_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_60_FPS" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_MOVIE_100_FPS</td>
+    <td>
+      <span class="IDM_MOVIE_100_FPS" />
     </td>
   </tr>
 
@@ -1046,6 +1363,48 @@ but not with other keys or other mouse buttons.
     </td>
   </tr>
 
+  <tr><td>IDM_TOGGLE_SORT_RANDOM</td>
+    <td>
+      <span class="IDM_TOGGLE_SORT_RANDOM" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_TOGGLE_INFO_OVERLAY</td>
+    <td>
+      <span class="IDM_TOGGLE_INFO_OVERLAY" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_CHANGE_FOLDER_LANGUAGE</td>
+    <td>
+      <span class="IDM_CHANGE_FOLDER_LANGUAGE" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_OPEN_DEFAULT_EDITOR</td>
+    <td>
+      <span class="IDM_OPEN_DEFAULT_EDITOR" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_TOGGLE_AUTO_ZOOM_FIT</td>
+    <td>
+      <span class="IDM_TOGGLE_AUTO_ZOOM_FIT" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_TOGGLE_USE_EMBEDDED_COLOR_PROFILES</td>
+    <td>
+      <span class="IDM_TOGGLE_USE_EMBEDDED_COLOR_PROFILES" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_AUTO_ZOOM_NONE</td>
+    <td>
+      <span class="IDM_AUTO_ZOOM_NONE" />
+    </td>
+  </tr>
+
   <tr><td>IDM_AUTO_ZOOM_FIT_NO_ZOOM</td>
     <td>
       <span class="IDM_AUTO_ZOOM_FIT_NO_ZOOM" />
@@ -1067,6 +1426,12 @@ but not with other keys or other mouse buttons.
   <tr><td>IDM_AUTO_ZOOM_FILL</td>
     <td>
       <span class="IDM_AUTO_ZOOM_FILL" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_AUTO_ZOOM_BOOK_MODE</td>
+    <td>
+      <span class="IDM_AUTO_ZOOM_BOOK_MODE" />
     </td>
   </tr>
 
@@ -1127,6 +1492,12 @@ but not with other keys or other mouse buttons.
   <tr><td>IDM_COLOR_CORRECTION_DEC</td>
     <td>
       <span class="IDM_COLOR_CORRECTION_DEC" />
+    </td>
+  </tr>
+
+  <tr><td>IDM_TOGGLE_TRANSPARENCY</td>
+    <td>
+      <span class="IDM_TOGGLE_TRANSPARENCY" />
     </td>
   </tr>
 

@@ -36,6 +36,9 @@ public:
 	CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, int nChannels, 
 		__int64 nJPEGHash, EImageFormat eImageFormat, bool bIsAnimation, int nFrameIndex, int nNumberOfFrames, int nFrameTimeMs,
 		CLocalDensityCorr* pLDC = NULL, bool bIsThumbnailImage = false, CRawMetadata* pRawMetadata = NULL);
+	CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, int nChannels,
+		__int64 nJPEGHash, EImageFormat eImageFormat, EImageFormat eContainerFormat = IF_Unknown, bool bIsAnimation = false, int nFrameIndex = 9, int nNumberOfFrames = 1, int nFrameTimeMs = 0,
+		CLocalDensityCorr* pLDC = NULL, bool bIsThumbnailImage = false, CRawMetadata* pRawMetadata = NULL);
 	~CJPEGImage(void);
 
 	// Gets resampled and processed 32 bpp DIB image (up or downsampled).
@@ -202,7 +205,7 @@ public:
 	void* OriginalPixels() { return  m_pOrigPixels; }
 	const void* OriginalPixels() const { return m_pOrigPixels; }
 	// remove original pixels from class - OriginalPixels() will return NULL afterwards
-	void DetachOriginalPixels() { m_pOrigPixels = NULL; }
+	void DetachOriginalPixels() { m_pOrigPixels = NULL; FreeHalfSizePixels(); }
 
 	// returns the number of channels in the OriginalPixels (3 or 4, corresponding to 24 bpp and 32 bpp)
 	int OriginalChannels() const { return m_nOriginalChannels; }
@@ -302,6 +305,11 @@ public:
 	// Gets the image format this image has originally
 	EImageFormat GetImageFormat() const { return m_eImageFormat; }
 
+	// Gets the container format of this image; IF_Unknown is not
+	EImageFormat GetContainerFormat() const { return m_eContainerFormat; }
+	bool IsContainer() const { return m_eContainerFormat != IF_Unknown; }
+	bool ContainerHasMultipleImages() const { return (m_eContainerFormat != IF_Unknown) && (m_nNumberOfFrames > 1); }
+
 	// Gets if the image format is one of the formats supported by GDI+
 	bool IsGDIPlusFormat() const {
 		return m_eImageFormat == IF_JPEG || m_eImageFormat == IF_WindowsBMP || m_eImageFormat == IF_PNG || m_eImageFormat == IF_TIFF || m_eImageFormat == IF_GIF;
@@ -373,7 +381,7 @@ private:
 	int m_nInitOrigWidth, m_nInitOrigHeight; // original width of image when constructed (before any rotation and crop)
 	int m_nOriginalChannels;
 	__int64 m_nPixelHash;
-	EImageFormat m_eImageFormat;
+	EImageFormat m_eImageFormat, m_eContainerFormat;
 	TJSAMP m_eJPEGChromoSampling;
 
 	// multiframe and GIF animation related data
@@ -403,6 +411,12 @@ private:
 	unsigned int m_nDIBGeneration; // see DIBGeneration()
 	ICCProfilePtr m_pICCProfile; // see GetICCProfile()
 	bool m_bDIBRecomputed; // set when the content of the cached DIBs changed since the last generation update
+
+	// Half size version of the original pixels (32 bpp BGRA, size m_HalfSize), downsampled with Catmull-Rom.
+	// Used as source for strong downscaling instead of the original pixels (see GetHalfSizeSource()).
+	// Created on demand, NULL if not available.
+	void* m_pHalfSizePixels;
+	CSize m_HalfSize;
 
 	// Cached gray and smoothed gray image for unsharp masking
 	int16* m_pGrayImage;
@@ -511,6 +525,12 @@ private:
 	static CSize GetSizeAfterFreeRotation(const CSize& sourceSize, double dRotation, bool bAutoCrop, bool bKeepAspectRatio, CPoint & offset);
 
 	// Get if from source to target size it is down or upsampling
+	// Returns the half size intermediate image if it shall be used as downsampling source for the given target size,
+	// creating it if needed. Returns NULL if the original pixels shall be used.
+	const void* GetHalfSizeSource(CSize fullTargetSize);
+
+	void FreeHalfSizePixels() { delete[] static_cast<uint8*>(m_pHalfSizePixels); m_pHalfSizePixels = NULL; m_HalfSize = CSize(0, 0); }
+
 	EResizeType GetResizeType(CSize targetSize, CSize sourceSize);
 
 	// Gets the rotation from EXIF if available

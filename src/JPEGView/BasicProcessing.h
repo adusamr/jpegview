@@ -45,7 +45,7 @@ public:
 	static void* Convert3To4Channels(int nWidth, int nHeight, const void* pIJLPixels);
 
 	// Convert from GDI+ 32 bpp RGBA format to 32 bpp BGRA DIB format
-	static void* ConvertGdiplus32bppRGB(int nWidth, int nHeight, int nStride, const void* pGdiplusPixels);
+	static void* ConvertGdiplus32bppRGB(int nWidth, int nHeight, int nStride, const void* pGdiplusPixels, bool bPurgeAlpha);
 
 	// Copy rectangular pixel block from source to target 32 bpp bitmap. The target bitmap is allocated
 	// if the 'pTarget' parameter is NULL. Note that size of source and target rect must match.
@@ -64,6 +64,11 @@ public:
 
 	// Mirror 32 bit DIB vertically
 	static void* MirrorV32bpp(int nWidth, int nHeight, const void* pDIBPixels);
+
+	// Same as Rotate32bpp() and Mirror32bpp() for 24 bit BGR images with lines padded to 4 bytes (as delivered
+	// by the image readers). The padding bytes of the result are set to zero.
+	static void* Rotate24bpp(int nWidth, int nHeight, const void* pPixels, int nRotationAngleCW);
+	static void* Mirror24bpp(int nWidth, int nHeight, const void* pPixels, bool bHorizontally);
 
 	// Mirror 32 bit DIB vertically inplace
 	static void MirrorVInplace(int nWidth, int nHeight, int nStride, void* pDIBPixels);

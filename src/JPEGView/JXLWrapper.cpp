@@ -8,6 +8,30 @@
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
 
+static int CountJxlFrames(const uint8_t* jxl_data, size_t size) {
+    auto decoder = JxlDecoderMake(nullptr);
+    if (!decoder) return 1;
+
+    // Wir abonnieren NUR das Frame-Event (keine Pixel, keine Farbprofile, keine Boxen)
+    if (JXL_DEC_SUCCESS != JxlDecoderSubscribeEvents(decoder.get(), JXL_DEC_FRAME)) {
+        return 1;
+    }
+
+    JxlDecoderSetInput(decoder.get(), jxl_data, size);
+    JxlDecoderCloseInput(decoder.get());
+
+    int count = 0;
+    for (;;) {
+        JxlDecoderStatus status = JxlDecoderProcessInput(decoder.get());
+        if (status == JXL_DEC_FRAME) {
+            count++;
+        } else if (status == JXL_DEC_SUCCESS || status == JXL_DEC_ERROR || status == JXL_DEC_NEED_MORE_INPUT) {
+            break;
+        }
+    }
+    return count > 0 ? count : 1;
+}
+
 struct JxlReader::jxl_cache {
 	JxlDecoderPtr decoder;
 	JxlResizableParallelRunnerPtr runner;
@@ -19,6 +43,7 @@ struct JxlReader::jxl_cache {
 	int height;
 	void* transform;
 	std::vector<uint8_t> exif;
+	int total_frames;
 };
 
 JxlReader::jxl_cache JxlReader::cache = { 0 };
@@ -113,11 +138,11 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 				JxlDecoderImageOutBufferSize(cache.decoder.get(), &format, &buffer_size)) {
 				return false;
 			}
-			if (buffer_size != cache.info.xsize * cache.info.ysize * 4) {
+			if (buffer_size != (size_t)cache.info.xsize * cache.info.ysize * 4) {
 				return false;
 			}
-			pixels->resize(cache.info.xsize * cache.info.ysize * 4);
-			void* pixels_buffer = (void*)pixels->data();
+			pixels->resize((size_t)cache.info.xsize * cache.info.ysize * 4);
+			void* pixels_buffer = static_cast<void*>(pixels->data());
 			size_t pixels_buffer_size = pixels->size() * sizeof(uint8_t);
 			if (JXL_DEC_SUCCESS != JxlDecoderSetImageOutBuffer(cache.decoder.get(), &format,
 				pixels_buffer,
@@ -131,8 +156,11 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 			ysize = cache.info.ysize;
 			have_animation = cache.info.have_animation;
 			if (have_animation) {
-				// TODO: Find a better way to indicate unknown frame count. JPEG XL images do not store number of frames.
-				frame_count = 2;
+				// Falls die Frame-Anzahl für diese Datei noch nicht ermittelt wurde: einmalig zählen
+				if (cache.total_frames == 0) {
+					cache.total_frames = CountJxlFrames(cache.data, cache.data_size);
+				}
+				frame_count = cache.total_frames;
 			} else {
 				frame_count = 1;
 			}
@@ -167,6 +195,12 @@ bool JxlReader::DecodeJpegXlOneShot(const uint8_t* jxl, size_t size, std::vector
 			output_pos += kChunkSize - remaining;
 			cache.exif.resize(cache.exif.size() + kChunkSize);
 			JxlDecoderSetBoxBuffer(cache.decoder.get(), cache.exif.data() + output_pos, cache.exif.size() - output_pos);
+		} else if (status == JXL_DEC_BOX_COMPLETE) {
+			if (!cache.exif.empty()) {
+				size_t remaining = JxlDecoderReleaseBoxBuffer(cache.decoder.get());
+				cache.exif.resize(cache.exif.size() - remaining);
+				return true;
+			}
 		} else {
 			return false;
 		}
@@ -198,7 +232,7 @@ void* JxlReader::ReadImage(int& width,
 		has_animation, frame_count, frame_time, &icc_profile, outOfMemory)) {
 		return NULL;
 	}
-	int size = width * height * nchannels;
+	size_t size = (size_t)width * height * nchannels;
 	pPixelData = new(std::nothrow) unsigned char[size];
 	if (pPixelData == NULL) {
 		outOfMemory = true;
@@ -209,7 +243,7 @@ void* JxlReader::ReadImage(int& width,
 	if (!ICCProfileTransform::DoTransform(cache.transform, pixels.data(), pPixelData, width, height)) {
 		// RGBA -> BGRA conversion (with little-endian integers)
 		uint32_t* data = (uint32_t*)pixels.data();
-		for (int i = 0; i * sizeof(uint32_t) < size; i++) {
+		for (size_t i = 0; i * sizeof(uint32_t) < size; i++) {
 			((uint32_t*)pPixelData)[i] = _rotr(_byteswap_ulong(data[i]), 8);
 		}
 	}
@@ -231,7 +265,10 @@ void* JxlReader::ReadImage(int& width,
 }
 
 void JxlReader::DeleteCache() {
-	free(cache.data);
+	// Do NOT free cache.data at this point! 
+	// It is a buffer allocated in CImageLoadThread.
+	// CImageLoadThread is responsible for freeing it.
+	
 	ICCProfileTransform::DeleteTransform(cache.transform);
 	// Setting the decoder and runner to 0 (NULL) will automatically destroy them
 	cache = { 0 };

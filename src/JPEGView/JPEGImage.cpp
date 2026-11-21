@@ -21,10 +21,6 @@ static unsigned int NewDIBGeneration() {
 	return (unsigned int)::InterlockedIncrement(&s_nDIBGenerationCounter);
 }
 
-// Hacky workaround.  Look at comment block in CJPEGImage::Resample()
-// undefine this flag to investigate which optimization might cause that particular failure (TODO)
-#define AVX_SSE_FREEZE_FALLBACK
-
 ///////////////////////////////////////////////////////////////////////////////////
 // Static helpers
 ///////////////////////////////////////////////////////////////////////////////////
@@ -72,8 +68,18 @@ static CBasicProcessing::SIMDArchitecture ToSIMDArchitecture(Helpers::CPUType cp
 CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, int nChannels, __int64 nJPEGHash,
 					   EImageFormat eImageFormat, bool bIsAnimation, int nFrameIndex, int nNumberOfFrames, int nFrameTimeMs,
 					   CLocalDensityCorr* pLDC, bool bIsThumbnailImage, CRawMetadata* pRawMetadata)
+	: CJPEGImage(nWidth, nHeight, pPixels, pEXIFData, nChannels, nJPEGHash,
+		eImageFormat, IF_Unknown, bIsAnimation, nFrameIndex, nNumberOfFrames, nFrameTimeMs,
+		pLDC, bIsThumbnailImage, pRawMetadata)
+{
+}
+
+CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, int nChannels, __int64 nJPEGHash,
+	EImageFormat eImageFormat, EImageFormat eContainerFormat, bool bIsAnimation, int nFrameIndex, int nNumberOfFrames, int nFrameTimeMs,
+	CLocalDensityCorr * pLDC, bool bIsThumbnailImage, CRawMetadata * pRawMetadata)
 	: m_rotationParams{ 0 },
-	m_fColorCorrectionFactorsNull{ 0 }
+	m_fColorCorrectionFactorsNull{ 0 },
+	m_eContainerFormat(eContainerFormat)
 {
 	if (nChannels == 3 || nChannels == 4) {
 		m_pOrigPixels = pPixels;
@@ -93,7 +99,7 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 		m_nEXIFSize = pEXIF[2]*256 + pEXIF[3] + 2;
 		m_pEXIFData = new char[m_nEXIFSize];
 		memcpy(m_pEXIFData, pEXIFData, m_nEXIFSize);
-		m_pEXIFReader = new CEXIFReader(m_pEXIFData, eImageFormat);
+		m_pEXIFReader = new CEXIFReader(m_pEXIFData, m_nEXIFSize, eImageFormat);
 	} else {
 		m_nEXIFSize = 0;
 		m_pEXIFData = NULL;
@@ -105,6 +111,11 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 	m_nPixelHash = nJPEGHash;
 	m_eImageFormat = eImageFormat;
 	m_bIsAnimation = bIsAnimation;
+// For containers like CBZ, the meaning of "bIsAnimation" is actually "bMultipleFiles"
+// It shouldn't really be needed for anything, since that check is done in ContainerHasMultipleImages with (m_nNumberOfFrames > 1)
+// Setting m_bIsAnimation to "false" fixes several issues, all caused by IsAnimation() checks.
+/*GF*/	if (eContainerFormat != IF_Unknown)
+/*GF*/		m_bIsAnimation = false;
 	m_nFrameIndex = nFrameIndex;
 	m_nNumberOfFrames = nNumberOfFrames;
 	m_nFrameTimeMs = nFrameTimeMs;
@@ -121,6 +132,8 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 	m_pHistogramThumbnail = NULL;
 	m_pGrayImage = NULL;
 	m_pSmoothGrayImage = NULL;
+	m_pHalfSizePixels = NULL;
+	m_HalfSize = CSize(0, 0);
 	
 	m_pLUTAllChannels = NULL;
 	m_pLUTRGB = NULL;
@@ -170,6 +183,7 @@ CJPEGImage::CJPEGImage(int nWidth, int nHeight, void* pPixels, void* pEXIFData, 
 CJPEGImage::~CJPEGImage(void) {
 	delete[] m_pOrigPixels;
 	m_pOrigPixels = NULL;
+	FreeHalfSizePixels();
 	delete[] m_pDIBPixels;
 	m_pDIBPixels = NULL;
 	delete[] m_pDIBPixelsLUTProcessed;
@@ -582,50 +596,40 @@ void* CJPEGImage::Resample(CSize fullTargetSize, CSize clippingSize, CPoint targ
 						  EProcessingFlags eProcFlags, double dSharpen, double dRotation, EResizeType eResizeType) {
 
 	Helpers::CPUType cpu = CSettingsProvider::This().AlgorithmImplementation();
-	// NOTE: Hacky workaround... there is probably a very obscure bug in the AVX2 implementation
-	//       which causes WaitForSingleObject to wait indefinitely on SampleUp_HQ_SIMD()
-	//       when window dimensions are > 3224 pixels wide.
-	//
-	// This obscure bug ONLY manifests itself on RELEASE builds, and not DEBUG builds, meaning
-	// it happens only when optimization is turned on.  I haven't had the chance to trial and error exactly
-	// which optimization flag causes the freeze, but that's a future TODO
-	//
-	// A lot of trial and error tests has a freeze happening at 3226 pixels wide, but not at 3224 pixels. (client rect pixels)
-	// (I was not able to test how this all behaves if it's 3224 pixels high, so, when displays get that cool, then we might have to revisit this hack)
-	// The AVX2 code is very advanced, and I don't have the expertise to debug it -sylikc
-	//
-	// The known workarounds based on GitHub issues is to either set CPUType=SSE or HighQualityResampling=false
-	//
-	// So, here, we detect and fallback to SSE when the conditions are met.  To be safe, I set the limit at 3200 pixels
-#ifdef AVX_SSE_FREEZE_FALLBACK
-	if (cpu == Helpers::CPU_AVX2 && clippingSize.cx > 3200) {
-		// only override the usage for SSE for these specific conditions
-		// AVX2 is supposed to be ~2.4x faster than SSE
-		cpu = Helpers::CPU_SSE;
-	}
-#endif
-
 	EFilterType filter = CSettingsProvider::This().DownsamplingFilter();
 
 	if (fullTargetSize.cx > 65535 || fullTargetSize.cy > 65535) return NULL;
 
-	if (GetProcessingFlag(eProcFlags, PFLAG_HighQualityResampling) && 
-		!(eResizeType == NoResize && (filter == Filter_Downsampling_Best_Quality || filter == Filter_Downsampling_No_Aliasing))) {
+	if (GetProcessingFlag(eProcFlags, PFLAG_HighQualityResampling) &&
+		!(eResizeType == NoResize) && (filter>0)) {
+		// For strong downscaling, the cached half size image is used as source (nearly the same result, much faster)
+		CSize sourceSize(m_nOrigWidth, m_nOrigHeight);
+		const void* pSourcePixels = m_pOrigPixels;
+		int nSourceChannels = m_nOriginalChannels;
+		if (eResizeType == DownSample) {
+			const void* pHalfSize = GetHalfSizeSource(fullTargetSize);
+			if (pHalfSize != NULL) {
+				sourceSize = m_HalfSize;
+				pSourcePixels = pHalfSize;
+				nSourceChannels = 4;
+			}
+		}
+
 		if (SupportsSIMD(cpu)) {
 			if (eResizeType == UpSample) {
-				return CBasicProcessing::SampleUp_HQ_SIMD(fullTargetSize, targetOffset, clippingSize, 
+				return CBasicProcessing::SampleUp_HQ_SIMD(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, ToSIMDArchitecture(cpu));
 			} else {
 				return CBasicProcessing::SampleDown_HQ_SIMD(fullTargetSize, targetOffset, clippingSize,
-					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, dSharpen, filter, ToSIMDArchitecture(cpu));
+					sourceSize, pSourcePixels, nSourceChannels, dSharpen, filter, ToSIMDArchitecture(cpu));
 			}
 		} else {
 			if (eResizeType == UpSample) {
-				return CBasicProcessing::SampleUp_HQ(fullTargetSize, targetOffset, clippingSize, 
+				return CBasicProcessing::SampleUp_HQ(fullTargetSize, targetOffset, clippingSize,
 					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels);
 			} else {
-				return CBasicProcessing::SampleDown_HQ(fullTargetSize, targetOffset, clippingSize, 
-					CSize(m_nOrigWidth, m_nOrigHeight), m_pOrigPixels, m_nOriginalChannels, dSharpen, filter);
+				return CBasicProcessing::SampleDown_HQ(fullTargetSize, targetOffset, clippingSize,
+					sourceSize, pSourcePixels, nSourceChannels, dSharpen, filter);
 			}
 		}
 	} else {
@@ -640,6 +644,41 @@ void* CJPEGImage::Resample(CSize fullTargetSize, CSize clippingSize, CPoint targ
 	}
 }
 
+const void* CJPEGImage::GetHalfSizeSource(CSize fullTargetSize) {
+	if (!CSettingsProvider::This().IntermediateDownsampling() || m_pOrigPixels == NULL) {
+		FreeHalfSizePixels(); // release the memory when switched off
+		return NULL;
+	}
+
+	// Only use the intermediate image if the remaining reduction is at least by factor 2 in both directions
+	// (target <= 1/4 of the original). Below, the Catmull-Rom pre-filter of the intermediate image is not
+	// transparent anymore in the pass band of the target and resampling from the original is better.
+	CSize halfSize((m_nOrigWidth + 1) / 2, (m_nOrigHeight + 1) / 2);
+	if (fullTargetSize.cx * 2 > halfSize.cx || fullTargetSize.cy * 2 > halfSize.cy) {
+		return NULL;
+	}
+
+	if (m_pHalfSizePixels != NULL && m_HalfSize == halfSize) {
+		return m_pHalfSizePixels;
+	}
+	FreeHalfSizePixels();
+
+	// Catmull-Rom has a flat pass band and good stop band for 2:1 and only tiny negative lobes (about 5% overshoot,
+	// clipped when stored as 8 bit). The user selected filter is applied in the second step only.
+	Helpers::CPUType cpu = CSettingsProvider::This().AlgorithmImplementation();
+	CSize origSize(m_nOrigWidth, m_nOrigHeight);
+	m_pHalfSizePixels = SupportsSIMD(cpu)
+		? CBasicProcessing::SampleDown_HQ_SIMD(halfSize, CPoint(0, 0), halfSize, origSize, m_pOrigPixels,
+			m_nOriginalChannels, 0.0, Filter_Downsampling_Catrom, ToSIMDArchitecture(cpu))
+		: CBasicProcessing::SampleDown_HQ(halfSize, CPoint(0, 0), halfSize, origSize, m_pOrigPixels,
+			m_nOriginalChannels, 0.0, Filter_Downsampling_Catrom);
+	if (m_pHalfSizePixels == NULL) {
+		return NULL; // e.g. out of memory: fall back to the original pixels
+	}
+	m_HalfSize = halfSize;
+	return m_pHalfSizePixels;
+}
+
 void* CJPEGImage::InternalResize(void* pixels, int channels, EResizeFilter filter, CSize targetSize, CSize sourceSize) {
 	EResizeType eResizeType = GetResizeType(targetSize, sourceSize);
 	Helpers::CPUType cpu = CSettingsProvider::This().AlgorithmImplementation();
@@ -648,7 +687,8 @@ void* CJPEGImage::InternalResize(void* pixels, int channels, EResizeFilter filte
 		return CBasicProcessing::PointSample(targetSize, CPoint(0, 0), targetSize, sourceSize, pixels, channels);
 	}
 
-	EFilterType downSamplingFilter = (filter == Resize_NoAliasing) ? Filter_Downsampling_No_Aliasing : Filter_Downsampling_Best_Quality;
+//	EFilterType downSamplingFilter = (filter == Resize_NoAliasing) ? Filter_Downsampling_No_Aliasing : Filter_Downsampling_Best_Quality;
+	EFilterType downSamplingFilter = CSettingsProvider::This().DownsamplingFilter();
 	double dSharpen = (filter == Resize_SharpenLow) ? 0.15 : (filter == Resize_SharpenMedium) ? 0.3 : 0.0;
 
 	if (SupportsSIMD(cpu)) {
@@ -693,13 +733,11 @@ bool CJPEGImage::VerifyRotation(const CRotationParams& rotationParams) {
 bool CJPEGImage::Rotate(int nRotation) {
 	double dStartTickCount = Helpers::GetExactTickCount();
 
-	// Rotation can only be done in 32 bpp
-	if (!ConvertSrcTo4Channels()) {
-		return false;
-	}
-
+	// Rotation works on 3 and 4 channels, no conversion needed (saves memory and time)
 	InvalidateAllCachedPixelData();
-	void* pNewOriginalPixels = CBasicProcessing::Rotate32bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, nRotation);
+	void* pNewOriginalPixels = (m_nOriginalChannels == 3)
+		? CBasicProcessing::Rotate24bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, nRotation)
+		: CBasicProcessing::Rotate32bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, nRotation);
 	if (pNewOriginalPixels == NULL) return false;
 	delete[] m_pOrigPixels;
 	m_pOrigPixels = pNewOriginalPixels;
@@ -718,13 +756,11 @@ bool CJPEGImage::Rotate(int nRotation) {
 bool CJPEGImage::Mirror(bool bHorizontally) {
 	double dStartTickCount = Helpers::GetExactTickCount();
 
-	// Rotation can only be done in 32 bpp
-	if (!ConvertSrcTo4Channels()) {
-		return false;
-	}
-
+	// Mirroring works on 3 and 4 channels, no conversion needed (saves memory and time)
 	InvalidateAllCachedPixelData();
-	void* pNewOriginalPixels = CBasicProcessing::Mirror32bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, bHorizontally);
+	void* pNewOriginalPixels = (m_nOriginalChannels == 3)
+		? CBasicProcessing::Mirror24bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, bHorizontally)
+		: CBasicProcessing::Mirror32bpp(m_nOrigWidth, m_nOrigHeight, m_pOrigPixels, bHorizontally);
 	if (pNewOriginalPixels == NULL) return false;
 	delete[] m_pOrigPixels;
 	m_pOrigPixels = pNewOriginalPixels;
@@ -1005,11 +1041,8 @@ void* CJPEGImage::GetDIBInternal(CSize fullTargetSize, CSize clippingSize, CPoin
 	}
 	// ApplyCorrectionLUTandLDC() could have failed, then recreate the DIBs
 	if (pDIB == NULL) {
-		// if the image is reprocessed more than once, it is worth to convert the original to 4 channels
-		// as this is faster for further processing
-		if (!m_bFirstReprocessing) {
-			ConvertSrcTo4Channels();
-		}
+		// The original is kept with 3 channels: resampling is equally fast for 3 and 4 channels, a conversion
+		// would cost time and memory (rotation and mirroring also work on 3 channels)
 
 		bParametersChanged = true;
 		m_bDIBRecomputed = true;
@@ -1435,6 +1468,7 @@ int CJPEGImage::GetRotationFromEXIF(int nOrigRotation) {
 		// So check if the thumbnail orientation is the same as the image orientation.
 		// If not, it can be assumed that someone touched the pixels and we ignore the EXIF
 		// orientation.
+/* [GF] Do not rely on aspect ratio comparison to assume Exif roation flag wrong.
 		if (m_pEXIFReader->GetThumbnailWidth() > 0 && m_pEXIFReader->GetThumbnailHeight() > 0) {
 			bool bWHOrig = m_nInitOrigWidth > m_nInitOrigHeight;
 			bool bWHThumb = m_pEXIFReader->GetThumbnailWidth() > m_pEXIFReader->GetThumbnailHeight();
@@ -1442,7 +1476,7 @@ int CJPEGImage::GetRotationFromEXIF(int nOrigRotation) {
 				return nOrigRotation;
 			}
 		}
-
+*/
 		switch (m_pEXIFReader->GetImageOrientation()) {
 			case 1:
 				m_bRotationByEXIF = true;
@@ -1495,6 +1529,7 @@ void CJPEGImage::InvalidateAllCachedPixelData() {
 	m_pThumbnail = NULL;
 	delete m_pHistogramThumbnail;
 	m_pHistogramThumbnail = NULL;
+	FreeHalfSizePixels(); // derived from the original pixels
 	m_ClippingSize = CSize(0, 0);
 }
 
@@ -1504,7 +1539,7 @@ CJPEGImage* CJPEGImage::CreateThumbnailImage() {
 	}
 	void* pPixels = NULL;
 	int nWidth, nHeight;
-	if (m_nOrigWidth*m_nOrigHeight < 120000) {
+	if ((long long)m_nOrigWidth*m_nOrigHeight < 120000) {
 		// take a copy of the original pixels
 		nWidth = m_nOrigWidth;
 		nHeight = m_nOrigHeight;

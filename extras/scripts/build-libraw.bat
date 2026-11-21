@@ -6,7 +6,7 @@ REM this builds LibRaw and replaces the dlls/libs in the JPEGView src folder
 SET XSRC_DIR=%~dp0..\..\src\JPEGView\libraw
 SET XLIB_DIR=%~dp0..\third_party\LibRaw
 
-SET XVS_VER=2019
+SET XVS_VER=2022
 IF /I "%XVS_INIT_VER%" NEQ "" (
 	REM override the build version for the solutions provided
 	SET XVS_VER=%XVS_INIT_VER%
@@ -30,16 +30,12 @@ IF ERRORLEVEL 1 exit /b 1
 call :BUILD_COPY_LIBRAW x64 "64"
 IF ERRORLEVEL 1 exit /b 1
 
+echo === HEADER FILES ===
+echo Copying 'extras\third_party\LibRaw\libraw\*' -to- 'src\JPEGView\libraw\include\libraw\'
+copy /y "%XLIB_DIR%\libraw\*" "%XSRC_DIR%\include\libraw\"
 
 REM cleanup
-del "%XMAKEFILE%"
-
-
-echo === HEADER FILES NOT MAINTAINED BY SCRIPT ===
-echo NOTE: as for the header files, copy/replace files AS NEEDED
-echo;
-echo TO:   src\JPEGView\libraw\include
-echo FROM: extras\third_party\LibRaw\libraw
+call :CLEANUP
 
 exit /b 0
 
@@ -106,5 +102,20 @@ copy /y "lib\libraw.lib" "%XSRC_DIR%\lib%~2"
 IF ERRORLEVEL 1 exit /b 1
 copy /y "bin\libraw.dll" "%XSRC_DIR%\bin%~2"
 IF ERRORLEVEL 1 exit /b 1
+
+exit /b 0
+
+
+REM ===============================================================================================
+
+:CLEANUP
+
+del "%XMF_PATH%"
+
+del /s /q "%XLIB_DIR%\bin\*.exe"
+del /s /q "%XLIB_DIR%\bin\*.dll"
+del /s /q "%XLIB_DIR%\lib\*.exp"
+del /s /q "%XLIB_DIR%\lib\*.lib"
+del /s /q "%XLIB_DIR%\object\*.obj"
 
 exit /b 0

@@ -7,6 +7,7 @@
 #include "FileList.h"
 #include "SettingsProvider.h"
 #include <math.h>
+#include <thread>	// [GF] Needed for NumConcurrentThreads()
 
 namespace Helpers {
 
@@ -15,7 +16,7 @@ float ScreenScaling = -1.0f;
 TCHAR CReplacePipe::sm_buffer[MAX_SIZE_REPLACE_PIPE];
 
 CReplacePipe::CReplacePipe(LPCTSTR sText) {
-	_tcsncpy_s(sm_buffer, MAX_SIZE_REPLACE_PIPE, sText, MAX_SIZE_REPLACE_PIPE);
+	_tcsncpy_s(sm_buffer, MAX_SIZE_REPLACE_PIPE, sText, _TRUNCATE); // _TRUNCATE: a too long text must not trigger the invalid parameter handler
 	sm_buffer[MAX_SIZE_REPLACE_PIPE-1] = 0;
 	TCHAR* pPtr = sm_buffer;
 	while (*pPtr != 0) {
@@ -39,26 +40,48 @@ void SetJPEGViewAppDataPath(LPCTSTR sPath) {
 }
 
 CSize GetImageRect(int nWidth, int nHeight, int nScreenWidth, int nScreenHeight, 
-					bool bAllowZoomIn, bool bFillCrop, bool bLimitAR, double & dZoom) {
-	double dAR1 = (double)nWidth/nScreenWidth;
-	double dAR2 = (double)nHeight/nScreenHeight;
-	double dARMin = min(dAR1, dAR2);
-	double dARMax = max(dAR1, dAR2);
-	double dAR = bFillCrop ? dARMin : dARMax;
-	if (dAR <= 1.0 && !bAllowZoomIn) {
-		if (bFillCrop) dAR = dARMax;
-		if (dAR <= 1.0) {
-			dZoom = 1.0;
-			return CSize(nWidth, nHeight);
+					bool bAllowZoomIn, bool bFillCrop, bool bLimitAR, EAutoZoomMode eAutoZoomMode, double & dZoom) {
+	CSettingsProvider& sp = CSettingsProvider::This();
+	int nBookModePageHeight = sp.BookModePageHeight();
+
+	if (eAutoZoomMode == ZM_BookMode) {
+		double dImageAR = (double)nWidth/nHeight;
+		if (dImageAR >= 1.0) {						// If it's wider than high, assume a double page
+			dZoom = (double)nScreenWidth/nWidth;	//    ... and Fit to screen width
+		} else {									// else, assume a single page
+			double dAR1 = ((double)(nHeight*100) / (nBookModePageHeight * nScreenHeight));	// Zoom to user specified height
+			double dAR2 = (double)nWidth/nScreenWidth;										//    ...but limit maximum image width to window width
+			double dAR = max(dAR1, dAR2);
+			dZoom = 1.0/dAR;
 		}
-	}
-	if (bFillCrop && bLimitAR) {
-		if (((nWidth/dAR * nHeight/dAR) / (nScreenWidth * nScreenHeight)) > 1.5) {
-			dAR = dARMax; // use fit to screen
+
+	} else if (eAutoZoomMode == ZM_None) {
+		dZoom = 1.0;
+	} else {
+		double dAR1 = (double)nWidth/nScreenWidth;
+		double dAR2 = (double)nHeight/nScreenHeight;
+		double dARMin = min(dAR1, dAR2);
+		double dARMax = max(dAR1, dAR2);
+		double dAR = bFillCrop ? dARMin : dARMax;
+		if (dAR <= 1.0 && !bAllowZoomIn) {
+			if (bFillCrop) dAR = dARMax;
+			if (dAR <= 1.0) {
+				dZoom = 1.0;
+				return CSize(nWidth, nHeight);
+			}
 		}
+		if (bFillCrop && bLimitAR) {
+			if (((nWidth/dAR * nHeight/dAR) / (nScreenWidth * nScreenHeight)) > 1.5) {
+				dAR = dARMax; // use fit to screen
+			}
+		}
+		dZoom = 1.0/dAR;
+		dZoom = min(ZoomMax, dZoom);
 	}
-	dZoom = 1.0/dAR;
-	dZoom = min(ZoomMax, dZoom);
+
+	CSize size((int)(nWidth * dZoom + 0.5), (int)(nHeight * dZoom + 0.5));
+
+/*
 	CSize size((int)(nWidth/dAR + 0.5), (int)(nHeight/dAR + 0.5));
 	if (abs(size.cx - nScreenWidth) <= 1 && abs(size.cy - nScreenHeight) <= 1) {
 		// allow 1 pixel tolerance to screen size - prefer screen size in this case to prevent another resize operation to fit image
@@ -66,24 +89,117 @@ CSize GetImageRect(int nWidth, int nHeight, int nScreenWidth, int nScreenHeight,
 		dZoom = min(ZoomMax, dZoom);
 		return CSize(nScreenWidth, nScreenHeight);
 	}
+*/
 	return size;
 }
 
-CString SystemTimeToString(const SYSTEMTIME &time) {
-	TCHAR sBufferDate[64];
-	TCHAR sBufferDay[8];
-	TCHAR sBufferTime[64];
-	::GetDateFormat(LOCALE_USER_DEFAULT, 0, &time, _T("ddd"), sBufferDay, 8);
-	::GetDateFormat(LOCALE_USER_DEFAULT, DATE_SHORTDATE, &time, NULL, sBufferDate, 64);
-	::GetTimeFormat(LOCALE_USER_DEFAULT, TIME_NOSECONDS, &time, NULL, sBufferTime, 64);
-	return CString(sBufferDay) + _T(" ") + sBufferDate + _T(" ") + sBufferTime;
+// Design decision: always show the time in 24h format, independent of the
+// Windows locale. Set to false to follow the locale's own time format
+// (e.g. "3:45 PM" for en-US).
+static const bool kForce24HourTime = true;
+
+struct LanguageMapping {
+	LPCTSTR languageCode;
+	LANGID languageId;
+};
+
+// Maps the language selected in JPEGView to a Windows LANGID.
+// Keep in sync with the language files shipped with JPEGView.
+static const LanguageMapping kLanguageMappings[] = {
+	{ _T("en"),     MAKELANGID(LANG_ENGLISH, SUBLANG_DEFAULT) },
+	// Plain "ar" would default to the Hijri calendar, so use the Egyptian
+	// sublanguage, which uses the Gregorian calendar.
+	{ _T("ar"),     MAKELANGID(LANG_ARABIC, SUBLANG_ARABIC_EGYPT) },
+	{ _T("be"),     MAKELANGID(LANG_BELARUSIAN, SUBLANG_DEFAULT) },
+	{ _T("bg"),     MAKELANGID(LANG_BULGARIAN, SUBLANG_DEFAULT) },
+	{ _T("cs"),     MAKELANGID(LANG_CZECH, SUBLANG_DEFAULT) },
+	{ _T("de"),     MAKELANGID(LANG_GERMAN, SUBLANG_DEFAULT) },
+	{ _T("el"),     MAKELANGID(LANG_GREEK, SUBLANG_DEFAULT) },
+	{ _T("es-ar"),  MAKELANGID(LANG_SPANISH, SUBLANG_SPANISH_ARGENTINA) },
+	{ _T("es"),     MAKELANGID(LANG_SPANISH, SUBLANG_DEFAULT) },
+	{ _T("eu"),     MAKELANGID(LANG_BASQUE, SUBLANG_DEFAULT) },
+	{ _T("fi"),     MAKELANGID(LANG_FINNISH, SUBLANG_DEFAULT) },
+	{ _T("fr"),     MAKELANGID(LANG_FRENCH, SUBLANG_DEFAULT) },
+	{ _T("hu"),     MAKELANGID(LANG_HUNGARIAN, SUBLANG_DEFAULT) },
+	{ _T("it"),     MAKELANGID(LANG_ITALIAN, SUBLANG_DEFAULT) },
+	{ _T("ja"),     MAKELANGID(LANG_JAPANESE, SUBLANG_DEFAULT) },
+	{ _T("ko"),     MAKELANGID(LANG_KOREAN, SUBLANG_DEFAULT) },
+	{ _T("pl"),     MAKELANGID(LANG_POLISH, SUBLANG_DEFAULT) },
+	{ _T("pt-br"),  MAKELANGID(LANG_PORTUGUESE, SUBLANG_PORTUGUESE_BRAZILIAN) },
+	// SUBLANG_DEFAULT for Portuguese is Brazil, so Portugal needs its own sublanguage
+	{ _T("pt"),     MAKELANGID(LANG_PORTUGUESE, SUBLANG_PORTUGUESE) },
+	{ _T("ro"),     MAKELANGID(LANG_ROMANIAN, SUBLANG_DEFAULT) },
+	{ _T("ru"),     MAKELANGID(LANG_RUSSIAN, SUBLANG_DEFAULT) },
+	{ _T("sk"),     MAKELANGID(LANG_SLOVAK, SUBLANG_DEFAULT) },
+	{ _T("sl"),     MAKELANGID(LANG_SLOVENIAN, SUBLANG_DEFAULT) },
+	// LANG_SERBIAN shares its ID with LANG_CROATIAN and SUBLANG_DEFAULT would
+	// resolve to hr-HR. Use SUBLANG_SERBIAN_CYRILLIC if the sr translation is Cyrillic.
+	{ _T("sr"),     MAKELANGID(LANG_SERBIAN, SUBLANG_SERBIAN_LATIN) },
+	{ _T("sv"),     MAKELANGID(LANG_SWEDISH, SUBLANG_DEFAULT) },
+	{ _T("ta"),     MAKELANGID(LANG_TAMIL, SUBLANG_DEFAULT) },
+	{ _T("tr"),     MAKELANGID(LANG_TURKISH, SUBLANG_DEFAULT) },
+	{ _T("uk"),     MAKELANGID(LANG_UKRAINIAN, SUBLANG_DEFAULT) },
+	{ _T("zh-tw"),  MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL) },
+	{ _T("zh"),     MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED) },
+};
+
+// Returns the locale that matches the language selected in JPEGView,
+// not the Windows locale. Otherwise things get messy.
+static LCID GetDateLocale() {
+	LPCTSTR sLanguage = CSettingsProvider::This().Language();
+	if (sLanguage == NULL || _tcsicmp(sLanguage, _T("auto")) == 0)
+		return LOCALE_USER_DEFAULT;
+
+	for (const auto& mapping : kLanguageMappings) {
+		if (_tcsicmp(sLanguage, mapping.languageCode) == 0) {
+			return MAKELCID(mapping.languageId, SORT_DEFAULT);
+		}
+	}
+
+	return LOCALE_USER_DEFAULT;
+}
+
+CString SystemTimeToString(const SYSTEMTIME& time) {
+	TCHAR sBufferDate[64] = { 0 };
+	TCHAR sBufferDay[16] = { 0 };
+	TCHAR sBufferTime[64] = { 0 };
+
+	LCID locale = GetDateLocale();
+	if (::GetDateFormat(locale, DATE_SHORTDATE, &time, NULL, sBufferDate, 64) == 0) {
+		// The selected language has no usable Windows locale, fall back to the system locale
+		locale = LOCALE_USER_DEFAULT;
+		sBufferDate[0] = 0;
+		::GetDateFormat(locale, DATE_SHORTDATE, &time, NULL, sBufferDate, 64);
+	}
+	::GetDateFormat(locale, 0, &time, _T("ddd"), sBufferDay, 16);
+
+	// Pass no format string and let flags control the output. Combining flags
+	// like TIME_NOSECONDS with a custom format string is invalid and can fail
+	// with ERROR_INVALID_FLAGS. This keeps the locale's own time separator.
+	DWORD timeFlags = TIME_NOSECONDS;
+	if (kForce24HourTime)
+		timeFlags |= TIME_FORCE24HOURFORMAT | TIME_NOTIMEMARKER;
+	::GetTimeFormat(locale, timeFlags, &time, NULL, sBufferTime, 64);
+
+	// Join only the parts that succeeded, so a failed call can't leave
+	// garbage or double spaces in the result
+	CString result;
+	const LPCTSTR parts[] = { sBufferDay, sBufferDate, sBufferTime };
+	for (LPCTSTR part : parts) {
+		if (part[0] == 0)
+			continue;
+		if (!result.IsEmpty())
+			result += _T(" ");
+		result += part;
+	}
+	return result;
 }
 
 CSize GetImageRect(int nWidth, int nHeight, int nScreenWidth, int nScreenHeight, EAutoZoomMode eAutoZoomMode, double & dZoom) {
 	CSize newSize = GetImageRect(nWidth, nHeight, nScreenWidth, nScreenHeight,
 		eAutoZoomMode == ZM_FitToScreen || eAutoZoomMode == ZM_FillScreen,
 		eAutoZoomMode == ZM_FillScreenNoZoom || eAutoZoomMode == ZM_FillScreen,
-		eAutoZoomMode == ZM_FillScreenNoZoom, dZoom);
+		eAutoZoomMode == ZM_FillScreenNoZoom, eAutoZoomMode, dZoom);
 	return CSize((int)(nWidth*dZoom + 0.5), (int)(nHeight*dZoom + 0.5));
 }
 
@@ -98,8 +214,15 @@ CSize GetVirtualImageSize(CSize originalImageSize, CSize screenSize, EAutoZoomMo
 		// ---------------------------------------------
 		newSize = CSize((int)(originalImageSize.cx * dZoom + 0.5), (int)(originalImageSize.cy * dZoom + 0.5));
 	}
-	newSize.cx = max(1, min(65535, newSize.cx));
-	newSize.cy = max(1, min(65535, newSize.cy));
+//	newSize.cx = max(1, min(65535, newSize.cx));
+//	newSize.cy = max(1, min(65535, newSize.cy));
+// Do aspect ratio corrected limiting instead
+	if (newSize.cx > 65535 || newSize.cy > 65535) {
+		double dFac = 65535.0/max(newSize.cx,newSize.cy);
+		dZoom = dZoom*dFac;
+		newSize.cx = (int)(originalImageSize.cx * dZoom + 0.5);
+		newSize.cy = (int)(originalImageSize.cy * dZoom + 0.5);
+	}
 	return newSize;
 }
 
@@ -183,6 +306,8 @@ static CPUType ProbeSSEorAVX2() {
 		int abcd[4];
 		__cpuid(abcd, 1);
 		if ((abcd[2] & 0x18000000) != 0x18000000) // AVX and OSXSAVE bits
+			return CPU_SSE;
+		if ((abcd[2] & 0x00001000) == 0) // FMA bit: the AVX2 code uses fused multiply-add (_mm256_fmadd_ps)
 			return CPU_SSE;
 		if ((abcd[2] & 0x04000000) == 0) // XSAVE bit, support for xgetbv
 			return CPU_SSE;
@@ -404,7 +529,17 @@ void* FindJPEGMarker(void* pJPEGStream, int nStreamLength, unsigned char nMarker
 
 void* FindEXIFBlock(void* pJPEGStream, int nStreamLength) {
 	uint8* pEXIFBlock = (uint8*)Helpers::FindJPEGMarker(pJPEGStream, nStreamLength, 0xE1);
-	if (pEXIFBlock != NULL && strncmp((const char*)(pEXIFBlock + 4), "Exif", 4) != 0) {
+	if (pEXIFBlock == NULL) {
+		return NULL;
+	}
+	// The segment (marker, length, "Exif\0\0", data) must be completely inside of the stream: the length comes from
+	// the file, and CJPEGImage copies as many bytes as it says
+	const int nAvailable = nStreamLength - (int)(pEXIFBlock - (uint8*)pJPEGStream);
+	if (nAvailable < 10) {
+		return NULL;
+	}
+	const int nSegmentSize = pEXIFBlock[2]*256 + pEXIFBlock[3] + 2;
+	if (nSegmentSize < 10 || nSegmentSize > nAvailable || memcmp(pEXIFBlock + 4, "Exif", 4) != 0) {
 		return NULL;
 	}
 	return pEXIFBlock;
@@ -466,9 +601,14 @@ CString GetJPEGComment(void* pJPEGStream, int nStreamLength) {
 	if (pCommentSeg == NULL) {
 		return CString("");
 	}
+	// marker (2), length (2), comment: the comment must be completely inside of the stream (the length comes from the file)
+	const int nAvailable = nStreamLength - (int)(pCommentSeg - (uint8*)pJPEGStream);
+	if (nAvailable < 4) {
+		return CString("");
+	}
 	pCommentSeg += 2;
 	int nCommentLen = pCommentSeg[0]*256 + pCommentSeg[1] - 2;
-	if (nCommentLen <= 0) {
+	if (nCommentLen <= 0 || nCommentLen > nAvailable - 4) {
 		return CString("");
 	}
 
@@ -550,7 +690,7 @@ CSize GetTotalBorderSize() {
 	return CSize(nBorderWidth, nBorderHeight);
 }
 
-CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, double& dZoom, CJPEGImage* pImage, bool bForceCenterWindow, bool bKeepAspectRatio, bool bWindowBorderless) {
+CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, double& dZoom, CJPEGImage* pImage, bool bForceCenterWindow, bool bKeepAspectRatio, bool bWindowBorderless, EAutoZoomMode eAutoZoomMode) {
 	int nOrigWidth = (pImage == NULL) ? ::GetSystemMetrics(SM_CXSCREEN) / 2 : pImage->OrigWidth();
 	int nOrigWidthUnzoomed = nOrigWidth;
 	int nOrigHeight = (pImage == NULL) ? ::GetSystemMetrics(SM_CYSCREEN) / 2 : pImage->OrigHeight();
@@ -594,7 +734,7 @@ CRect GetWindowRectMatchingImageSize(HWND hWnd, CSize minSize, CSize maxSize, do
 		CSize imageRect = Helpers::GetImageRect(nOrigWidth, nOrigHeight, 
 			min(maxSize.cx, workingArea.Width() - borderSize.cx),
 			min(maxSize.cy, workingArea.Height() - borderSize.cy),
-			false, false, false, dZoom);
+			false, false, false, eAutoZoomMode, dZoom);
 		nRequiredWidth = imageRect.cx + borderSize.cx;
 		nRequiredHeight = imageRect.cy + borderSize.cy;
 	} else {
@@ -728,10 +868,10 @@ LPCTSTR ConvertTransitionEffectToString(ETransitionEffect effect) {
 	}
 }
 
-static bool IsInFileEndingList(LPCTSTR sFileEndings, LPCTSTR sEnding) {
-	const int BUFFER_SIZE = 256;
-	TCHAR buffer[BUFFER_SIZE];
-	_tcsncpy_s(buffer, BUFFER_SIZE, sFileEndings, _TRUNCATE);
+static bool IsInFileEndingList(LPCTSTR sFileEndings, LPCTSTR sEnding, int nStartOffset = 1, int nEndingOffset = -1) {
+	// heap copy: a long list of file endings must not be silently cut off
+	CString sBuffer(sFileEndings);
+	LPTSTR buffer = sBuffer.GetBuffer();
 	LPTSTR sStart = buffer, sCurrent = buffer;
 	while (*sCurrent != 0) {
 		while (*sCurrent != 0 && *sCurrent != _T(';')) {
@@ -741,7 +881,7 @@ static bool IsInFileEndingList(LPCTSTR sFileEndings, LPCTSTR sEnding) {
 			*sCurrent = 0;
 			sCurrent++;
 		}
-		if (_tcsicmp(sStart + 1, sEnding - 1) == 0) {
+		if (_tcsicmp(sStart + nStartOffset, sEnding + nEndingOffset) == 0) {
 			return true;
 		}
 		sStart = sCurrent;
@@ -771,6 +911,9 @@ EImageFormat GetImageFormat(LPCTSTR sFileName) {
 			return IF_HEIF;
 		} else if (_tcsicmp(sEnding, _T("TGA")) == 0) {
 			return IF_TGA;
+		} else if ((_tcsicmp(sEnding, _T("ZIP")) == 0) || (_tcsicmp(sEnding, _T("CBZ")) == 0)
+			|| (_tcsicmp(sEnding, _T("7Z")) == 0) || (_tcsicmp(sEnding, _T("CB7")) == 0)) {
+			return IF_ZIP;
 		} else if (_tcsicmp(sEnding, _T("QOI")) == 0) {
 			return IF_QOI;
 		} else if (_tcsicmp(sEnding, _T("PSD")) == 0) {
@@ -784,11 +927,21 @@ EImageFormat GetImageFormat(LPCTSTR sFileName) {
 	return IF_Unknown;
 }
 
+bool IsRawImageFormat(LPCTSTR sExt)
+{
+	return IsInFileEndingList(CSettingsProvider::This().FileEndingsRAW(), sExt, 2, 0); //2: skip "*." in ref, 0: no '.' in given ext
+}
+
 // Returns the short form of the path (including the file name)
 CString GetShortFilePath(LPCTSTR sPath) {
-	TCHAR shortPath[MAX_PATH];
-	if (::GetShortPathName(sPath, (LPTSTR)(&shortPath), MAX_PATH) != 0) {
-		return CString(shortPath);
+	DWORD nLen = ::GetShortPathName(sPath, NULL, 0); // required length including terminating 0
+	if (nLen > 0) {
+		CString sShortPath;
+		LPTSTR pBuff = sShortPath.GetBuffer(nLen);
+		DWORD nCopied = ::GetShortPathName(sPath, pBuff, nLen);
+		sShortPath.ReleaseBuffer((nCopied > 0 && nCopied < nLen) ? nCopied : 0);
+		if (!sShortPath.IsEmpty()) return sShortPath;
+		return CString(sPath);
 	} else {
 		int nError = ::GetLastError();
 		return CString(sPath);
@@ -862,24 +1015,31 @@ __int64 GetFileSize(HANDLE hFile) {
 }
 
 // Gets the frame index of the next frame, depending on the index of the last image (relevant if the image is a multiframe image)
-int GetFrameIndex(CJPEGImage* pImage, bool bNext, bool bPlayAnimation, bool & switchImage) {
+int GetFrameIndex(CJPEGImage* pImage, int iOffset, bool bSwitchFrame, bool & switchImage) {
 	bool isMultiFrame = pImage != NULL && pImage->NumberOfFrames() > 1;
 	bool isAnimation = pImage != NULL && pImage->IsAnimation();
+	bool isContainer = pImage != NULL && pImage->IsContainer();
 	int nFrameIndex = 0;
 	switchImage = true;
 	if (isMultiFrame) {
 		switchImage = false;
-		nFrameIndex = pImage->FrameIndex() + (bNext ? 1 : -1);
+		nFrameIndex = pImage->FrameIndex() + iOffset;
 		if (isAnimation) {
-			if (bPlayAnimation) {
+			if (bSwitchFrame) {
 				if (nFrameIndex < 0) {
-					nFrameIndex = pImage->NumberOfFrames() - 1;
+					nFrameIndex = nFrameIndex + pImage->NumberOfFrames();
 				} else if (nFrameIndex > pImage->NumberOfFrames() - 1) {
-					nFrameIndex = 0;
+					nFrameIndex = nFrameIndex - pImage->NumberOfFrames();
 				}
 			} else {
 				switchImage = true;
 				nFrameIndex = 0;
+			}
+		} else if (isContainer) {
+			if (nFrameIndex < 0) {
+				nFrameIndex = nFrameIndex + pImage->NumberOfFrames();
+			} else if (nFrameIndex > pImage->NumberOfFrames() - 1) {
+				nFrameIndex = nFrameIndex - pImage->NumberOfFrames();
 			}
 		} else {
 			if (nFrameIndex < 0 || nFrameIndex >= pImage->NumberOfFrames()) {
@@ -888,7 +1048,7 @@ int GetFrameIndex(CJPEGImage* pImage, bool bNext, bool bPlayAnimation, bool & sw
 			}
 		}
 	}
-	if (bPlayAnimation && pImage == NULL) {
+	if (bSwitchFrame && pImage == NULL) {
 		switchImage = false; // never switch image when error during animation playing
 	}
 
@@ -945,15 +1105,7 @@ CString GetFileInfoString(LPCTSTR sFormat, CJPEGImage* pImage, CFileList* pFilel
 	}
 	if (_tcsstr(sFormat, _T("<l>")) != NULL) {
 		__int64 fileSize = isClipboardImage ? 0 : GetFileSize(pFilelist->Current());
-		CString sFileSize;
-		if (fileSize >= 1024 * 1024) {
-			sFileSize.Format(_T("%d MB"), (int)(fileSize >> 20));
-		} else if (fileSize >= 1024) {
-			sFileSize.Format(_T("%d KB"), (int)(fileSize >> 10));
-		} else if (fileSize > 0) {
-			sFileSize.Format(_T("%d b"), (int)fileSize);
-		}
-		sFileInfo.Replace(_T("<l>"), sFileSize);
+		sFileInfo.Replace(_T("<l>"), FormatFileSize(fileSize));
 	}
 	sFileInfo.TrimLeft();
 	sFileInfo.TrimRight();
@@ -971,4 +1123,184 @@ int GetWindowsVersion() {
 	return osvi.dwMajorVersion * 100 + osvi.dwMinorVersion;
 }
 
+// [GF] Used in "SettingsProvider.cpp" to set "m_nNumCores"
+// Needs "#include <thread>"
+int NumConcurrentThreads(void) {
+	if (!CPUSupportsHWMultiprocessing()) {
+		return 1;
+	}
+
+	//may return 0 when not able to detect
+	int processor_count = std::thread::hardware_concurrency();
+
+	if (processor_count<1)
+		processor_count = 1;
+
+	return processor_count;
+}
+
+CString FormatFileSize(__int64 nFileSize) {
+	CString sFileSize = _T("");
+	if (nFileSize > 0) {
+		if (nFileSize <= 1024) {
+			sFileSize.Format(_T("%d Bytes"), nFileSize);
+		} else {
+			const TCHAR* units[] = { _T("Bytes"), _T("KiB"), _T("MiB"), _T("GiB"), _T("TiB"), _T("PiB"), _T("EiB"), _T("ZiB"), _T("YiB") };
+			double value = nFileSize;
+			int exponent = 0;
+			while (value >= 1024 && exponent < sizeof(units) / sizeof(units[0]) - 1) {
+				value /= 1024.0;
+				exponent++;
+			}
+
+			if (value < 10.0) {
+				sFileSize.Format(_T("%.2f %s"), value, units[exponent]); // e.g. 1,23 MiB
+			} else if (value < 100.0) {
+				sFileSize.Format(_T("%.1f %s"), value, units[exponent]); // e.g. 12,3 MiB
+			} else {
+				sFileSize.Format(_T("%.0f %s"), value, units[exponent]); // e.g. 123 MiB
+    }
+			
+		}
+	}
+	
+	return sFileSize;
+}
+
+bool CanReadAhead(CJPEGImage* pImage) {
+	bool isMultiFrame = pImage != NULL && pImage->NumberOfFrames() > 1;
+	bool isAnimation = pImage != NULL && pImage->IsAnimation();
+	bool isContainer = pImage != NULL && pImage->IsContainer();
+	int nFrameIndex = 0;
+	if (isMultiFrame) {
+		if (isAnimation) {
+			return false;
+		} else if (isContainer) {
+			return true;
+		} else {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+bool StillEnoughFree() {
+	MEMORYSTATUSEX memStatus;
+	memStatus.dwLength = sizeof(memStatus);
+	if (!::GlobalMemoryStatusEx(&memStatus) || memStatus.ullTotalPhys == 0) {
+		return true; // not known: no limit, as before
+	}
+	// ullAvailPhys includes the standby list (cached file data that can be reused immediately)
+	return memStatus.ullAvailPhys * 100 >= memStatus.ullTotalPhys * READ_AHEAD_MIN_FREE_PERCENT;
+}
+
+// Based on: https://github.com/sdneon/jpegview.git
+	void BlendAlpha(uint32* pImage32, int nWidth, int nHeight, Helpers::ETransparencyMode nTransparencyMode)
+	{
+		COLORREF nTransparency = CSettingsProvider::This().ColorTransparency();
+		if (nTransparencyMode != Helpers::TP_CHECKERBOARD) {
+			if (nTransparencyMode == Helpers::TP_BLEND_INVERSE) {
+				nTransparency = ~(nTransparency & 0xffffff);
+			}
+			for (size_t i = 0, n = (size_t)nWidth * nHeight; i < n; ++i) {
+				*pImage32 = AlphaBlendBackground(*pImage32, nTransparency);
+				pImage32++;
+			}
+		} else {
+			for (int y = 0; y < nHeight; ++y) {
+				for (int x = 0; x < nWidth; ++x) {
+					*pImage32 = AlphaBlendBackground(*pImage32, nTransparency, true, x, y);
+					pImage32++;
+				}
+			}
+		}
+	}
+
+	// Funktionszeiger-Typ für wine_get_version definieren
+	typedef const char* (__cdecl* pwine_get_version)(void);
+
+	bool isRunningUnderWine() {
+		// ntdll.dll ist in jedem Windows-Prozess bereits geladen
+		HMODULE hNtDll = GetModuleHandleA("ntdll.dll");
+		if (!hNtDll) {
+			return false;
+		}
+
+		// Prüfen, ob die Wine-spezifische Funktion existiert
+		pwine_get_version wine_get_version =
+			(pwine_get_version)GetProcAddress(hNtDll, "wine_get_version");
+
+		if (wine_get_version) {
+			// Optional: Version auslesen (z.B. "9.0")
+			// const char* version = wine_get_version();
+			return true;
+		}
+
+		return false;
+	}
+
+	// Konvertiert einen Windows-Pfad (z.B. Z:\home\...) in einen Unix-Pfad (/home/...)
+	CString GetUnixPathFromWine(LPCTSTR szDosPath) {
+		HMODULE hKernel32 = GetModuleHandle(_T("kernel32.dll"));
+		if (!hKernel32) return _T("");
+
+		// Wine-Signatur: Nimmt LPCWSTR (UTF-16), liefert char* (UTF-8 POSIX-Pfad)
+		typedef char* (__cdecl* pwine_get_unix_file_name)(LPCWSTR);
+		pwine_get_unix_file_name wine_get_unix_file_name =
+			(pwine_get_unix_file_name)GetProcAddress(hKernel32, "wine_get_unix_file_name");
+
+		if (wine_get_unix_file_name) {
+			// Wine nimmt direkt den Unicode-Pfad entgegen (szDosPath)
+			char* unixPathUtf8 = wine_get_unix_file_name(szDosPath);
+			if (unixPathUtf8) {
+				// Konvertiert den UTF-8 char* Stream von Linux direkt in einen Unicode-CString
+				CString sResult(CA2W(unixPathUtf8, CP_UTF8));
+
+				// Den von Wine auf dem Prozess-Heap allokierten Speicher freigeben
+				HeapFree(GetProcessHeap(), 0, unixPathUtf8);
+
+				return sResult;
+			}
+		}
+		return _T("");
+	}
+
+	// Prüft, ob eine Linux-Datei auf dem Host existiert
+	bool IsLinuxBinaryAvailable(LPCTSTR szUnixPath) {
+		if (szUnixPath == NULL || szUnixPath[0] == _T('\0')) return false;
+
+		CString sDosPath;
+
+		if (szUnixPath[0] == _T('~')) {
+			// Unter Wine enthält %USERNAME% den Linux-Benutzernamen (z. B. "gernotf")
+			TCHAR szUser[256] = { 0 };
+			DWORD dwLen = ::GetEnvironmentVariable(_T("USERNAME"), szUser, 256);
+			if (dwLen == 0) {
+				dwLen = ::GetEnvironmentVariable(_T("USER"), szUser, 256);
+			}
+
+			if (dwLen > 0) {
+				// '~' zu 'Z:\home\<username>\...' auflösen
+				sDosPath.Format(_T("Z:\\home\\%s%s"), szUser, szUnixPath + 1);
+			}
+			else {
+				return false;
+			}
+		}
+		else if (szUnixPath[0] == _T('/')) {
+			// Absolute Unix-Pfade wie /usr/bin/... auf Z:\ mappen
+			sDosPath.Format(_T("Z:%s"), szUnixPath);
+		}
+		else {
+			sDosPath = szUnixPath;
+		}
+
+		// Vorwärts-Slashes in Windows-Backslashes umwandeln
+		sDosPath.Replace(_T('/'), _T('\\'));
+
+		// Existenz der Datei auf Laufwerk Z:\ prüfen
+		DWORD dwAttr = ::GetFileAttributes(sDosPath);
+		return (dwAttr != INVALID_FILE_ATTRIBUTES && !(dwAttr & FILE_ATTRIBUTE_DIRECTORY));
+	}
 }

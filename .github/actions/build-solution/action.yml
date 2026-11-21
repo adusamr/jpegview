@@ -56,6 +56,21 @@ runs:
         Select-String -Path src/JPEGView.Setup/Product.wxs -Pattern "<Product"
 
 
+    - name: Fetch 7z.dll (needed by bit7z for CB7 archives, not in the repo)
+      shell: pwsh
+      run: |
+        $dir = if ("${{ inputs.platform-arch }}" -eq "x64") { "bin64" } else { "bin" }
+        $suffix = if ("${{ inputs.platform-arch }}" -eq "x64") { "-x64" } else { "" }
+        $dest = "src/JPEGView/bit7z/$dir"
+        if (-not (Test-Path "$dest/7z.dll")) {
+          New-Item -ItemType Directory -Force -Path $dest, "$env:RUNNER_TEMP/7zip" | Out-Null
+          $installer = "$env:RUNNER_TEMP/7zip/7z2501$suffix.exe"
+          Invoke-WebRequest -Uri "https://www.7-zip.org/a/7z2501$suffix.exe" -OutFile $installer
+          & "C:\Program Files\7-Zip\7z.exe" e $installer 7z.dll "-o$dest" -y
+          if ($LASTEXITCODE -ne 0 -or -not (Test-Path "$dest/7z.dll")) { Write-Error "Could not extract 7z.dll"; exit 1 }
+        }
+        Get-Item "$dest/7z.dll" | Format-List FullName, Length
+
     - name: Build Solution
       shell: cmd
       env:

@@ -6,6 +6,7 @@
 #include "png.h"
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
+
 #include <stdexcept>
 
 // Uncomment to build without APNG support
@@ -61,7 +62,7 @@ struct PngReader::png_cache {
 	unsigned char* p_image;
 	unsigned char* p_frame;
 	unsigned char* p_temp;
-	unsigned int size;
+	size_t size;
 	unsigned int width;
 	unsigned int height;
 	unsigned int channels;
@@ -70,6 +71,7 @@ struct PngReader::png_cache {
 	void* buffer;
 	size_t buffer_size;
 	size_t buffer_offset;
+	void* transform;
 };
 
 PngReader::png_cache PngReader::cache = { 0 };
@@ -123,51 +125,69 @@ void* PngReader::ReadNextFrame(void** exif_chunk, png_uint_32* exif_size)
 	}
 	if (cache.frame_index == cache.first)
 	{
-		cache.bop = PNG_BLEND_OP_SOURCE;
-		if (cache.dop == PNG_DISPOSE_OP_PREVIOUS)
-			cache.dop = PNG_DISPOSE_OP_BACKGROUND;
+		cache.bop = PNG_fcTL_BLEND_OP_SOURCE;
+		if (cache.dop == PNG_fcTL_DISPOSE_OP_PREVIOUS)
+			cache.dop = PNG_fcTL_DISPOSE_OP_BACKGROUND;
 	}
 #endif
 	png_read_image(cache.png_ptr, cache.rows_frame);
 
+	if (cache.p_image == NULL) {
+		// Not animated: the frame buffer has no row padding (4 channels, 8 bit), hand it over without copying
+		void* pixels = cache.p_frame;
+		cache.p_frame = NULL;
+		cache.frame_index++;
+		cache.frame_index %= cache.frame_count;
+		if (cache.transform != NULL && pixels != NULL) {
+			ICCProfileTransform::DoTransform(cache.transform, pixels, pixels, cache.width, cache.height);
+		}
+		return pixels;
+	}
+
 #ifdef PNG_APNG_SUPPORTED
-	if (cache.dop == PNG_DISPOSE_OP_PREVIOUS)
+	if (cache.dop == PNG_fcTL_DISPOSE_OP_PREVIOUS)
 		memcpy(cache.p_temp, cache.p_image, cache.size);
 
-	if (cache.bop == PNG_BLEND_OP_OVER)
+	if (cache.bop == PNG_fcTL_BLEND_OP_OVER)
 		BlendOver(cache.rows_image, cache.rows_frame, cache.x0, cache.y0, cache.w0, cache.h0);
 	else
 #endif
 		for (j = 0; j < cache.h0; j++)
 			memcpy(cache.rows_image[j + cache.y0] + cache.x0 * 4, cache.rows_frame[j], cache.w0 * 4);
 
-	void* pixels = malloc(cache.width * cache.height * cache.channels);
+	void* pixels = malloc((size_t)cache.width * cache.height * cache.channels);
 	if (pixels == NULL)
 		return NULL;
 	for (j = 0; j < cache.height; j++)
-		memcpy((char*)pixels + j * cache.width * cache.channels, cache.rows_image[j], cache.width * cache.channels);
+		memcpy((char*)pixels + (size_t)j * cache.width * cache.channels, cache.rows_image[j], cache.width * cache.channels);
 
 #ifdef PNG_APNG_SUPPORTED
-	if (cache.dop == PNG_DISPOSE_OP_PREVIOUS)
+	if (cache.dop == PNG_fcTL_DISPOSE_OP_PREVIOUS)
 		memcpy(cache.p_image, cache.p_temp, cache.size);
 	else
-		if (cache.dop == PNG_DISPOSE_OP_BACKGROUND)
+		if (cache.dop == PNG_fcTL_DISPOSE_OP_BACKGROUND)
 			for (j = 0; j < cache.h0; j++)
 				memset(cache.rows_image[j + cache.y0] + cache.x0 * 4, 0, cache.w0 * 4);
 #endif
 	cache.frame_index++;
 	cache.frame_index %= cache.frame_count;
+
+    if (cache.transform != NULL && pixels != NULL) {
+        ICCProfileTransform::DoTransform(cache.transform, pixels, pixels, cache.width, cache.height);
+    }
+
 	return pixels;
 }
 
 bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 {
-	unsigned int    width, height, channels, rowbytes, size, j;
+	unsigned int    width, height, channels, rowbytes, j;
+	size_t          size; // 64 bit: images can have more than 4 GiB of pixel data
 	png_bytepp      rows_image;
 	png_bytepp      rows_frame;
-	unsigned char*  p_image;
-	unsigned char*  p_frame;
-	unsigned char*  p_temp;
+	unsigned char*  p_image = NULL;
+	unsigned char*  p_frame = NULL;
+	unsigned char*  p_temp = NULL;
 
 
 	png_structp png_ptr = png_create_read_struct(PNG_LIBPNG_VER_STRING, NULL, NULL, NULL);
@@ -180,7 +200,7 @@ bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 		if (setjmp(png_jmpbuf(png_ptr)))
 		{
 			PngReader::DeleteCache();
-			throw std::runtime_error::runtime_error("Image contains errors.");
+            throw std::runtime_error("Image contains errors.");
 		}
 		// skip png signature since we already checked it
 		png_set_sig_bytes(png_ptr, 8);
@@ -200,6 +220,18 @@ bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 		};
 		png_set_read_fn(png_ptr, (char*)buffer, read_data_fn);
 		png_read_info(png_ptr, info_ptr);
+
+        // icc start
+        png_charp name = NULL;
+        int compression_type = 0;
+        png_bytep profile = NULL;
+        png_uint_32 proflen = 0;
+        if (png_get_iCCP(png_ptr, info_ptr, &name, &compression_type, &profile, &proflen) == PNG_INFO_iCCP) {
+            // Da libpng über png_set_bgr ein BGRA-Layout im Puffer erzeugt:
+            cache.transform = ICCProfileTransform::CreateTransform(profile, proflen, ICCProfileTransform::FORMAT_BGRA);
+        }
+        // icc end
+
 		png_set_expand(png_ptr);
 		png_set_strip_16(png_ptr);
 		png_set_gray_to_rgb(png_ptr);
@@ -225,13 +257,24 @@ bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 			return false;
 		}
 		rowbytes = (unsigned int)png_get_rowbytes(png_ptr, info_ptr);
-		size = height * rowbytes;
-		p_image = (unsigned char*)malloc(size);
+		size = (size_t)height * rowbytes;
+		// Not animated: only one buffer is needed (the decoded frame is handed over to the caller as is).
+		// Animated: image (composed canvas), frame and temp buffer. This keeps huge still images at 1x memory.
+		bool bSingle = true;
+#ifdef PNG_APNG_SUPPORTED
+		if (png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL))
+			bSingle = false;
+#endif
 		p_frame = (unsigned char*)malloc(size);
-		p_temp = (unsigned char*)malloc(size);
-		rows_image = (png_bytepp)malloc(height * sizeof(png_bytep));
-		rows_frame = (png_bytepp)malloc(height * sizeof(png_bytep));
-		if (p_image && p_frame && p_temp && rows_image && rows_frame)
+		rows_frame = (png_bytepp)malloc((size_t)height * sizeof(png_bytep));
+		rows_image = NULL;
+		if (!bSingle)
+		{
+			p_image = (unsigned char*)malloc(size);
+			p_temp = (unsigned char*)malloc(size);
+			rows_image = (png_bytepp)malloc((size_t)height * sizeof(png_bytep));
+		}
+		if (p_frame && rows_frame && (bSingle || (p_image && p_temp && rows_image)))
 		{
 			png_uint_32     frames = 1;
 			png_uint_32     x0 = 0;
@@ -248,11 +291,12 @@ bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 			if (png_get_valid(png_ptr, info_ptr, PNG_INFO_acTL))
 				png_get_acTL(png_ptr, info_ptr, &frames, &plays);
 #endif
-			for (j = 0; j < height; j++)
-				rows_image[j] = p_image + j * rowbytes;
+			if (rows_image != NULL)
+				for (j = 0; j < height; j++)
+					rows_image[j] = p_image + (size_t)j * rowbytes;
 
 			for (j = 0; j < height; j++)
-				rows_frame[j] = p_frame + j * rowbytes;
+				rows_frame[j] = p_frame + (size_t)j * rowbytes;
 
 #ifdef PNG_APNG_SUPPORTED
 			cache.bop = bop;
@@ -281,6 +325,7 @@ bool PngReader::BeginReading(void* buffer, size_t sizebytes, bool& outOfMemory)
 			cache.frame_count = frames;
 			return frames > 0;
 		}
+		outOfMemory = true;
 		free(p_image);
 		free(rows_image);
 		free(rows_frame);
@@ -329,17 +374,6 @@ void* PngReader::ReadImage(int& width,
 	void* pixels = ReadNextFrame(&exif, &exif_size);
 	if (pixels && read_two)
 		pixels = ReadNextFrame(&exif, &exif_size);
-
-	// Apply the embedded ICC profile (iCCP chunk), or keep it with the image (see ICCProfileTransform::CreateTransform())
-	png_charp icc_name = NULL;
-	int icc_compression = 0;
-	png_bytep icc_profile = NULL;
-	png_uint_32 icc_size = 0;
-	if (pixels && png_get_iCCP(cache.png_ptr, cache.info_ptr, &icc_name, &icc_compression, &icc_profile, &icc_size) == PNG_INFO_iCCP) {
-		void* transform = ICCProfileTransform::CreateTransform(icc_profile, icc_size, ICCProfileTransform::FORMAT_BGRA);
-		ICCProfileTransform::DoTransform(transform, pixels, pixels, cache.width, cache.height);
-		ICCProfileTransform::DeleteTransform(transform);
-	}
 	
 	width = cache.width;
 	height = cache.height;
@@ -369,6 +403,11 @@ void* PngReader::ReadImage(int& width,
 
 void PngReader::DeleteCacheInternal(bool free_buffer)
 {
+    if (cache.transform) {
+        ICCProfileTransform::DeleteTransform(cache.transform);
+        cache.transform = NULL;
+    }
+
 	// png_read_end(cache.png_ptr, cache.info_ptr);
 	free(cache.rows_frame);
 	free(cache.rows_image);

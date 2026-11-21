@@ -5,6 +5,7 @@
 #include "SettingsProvider.h"
 #include "HelpersGUI.h"
 #include "KeyMap.h"
+#include "FileOpenDialog.h"
 
 ///////////////////////////////////////////////////////////////////////////////////
 // Class implementation
@@ -79,7 +80,7 @@ LRESULT CManageOpenWithDlg::OnCloseDialog(WORD /*wNotifyCode*/, WORD wID, HWND /
 		m_btnDelete.EnableWindow(TRUE);
 		m_lbMenuEntries.EnableWindow(TRUE);
 		
-		TCHAR title[127];
+		TCHAR title[127 + 1]; // +1 for the terminating 0 written below when GetLine returns the maximum
 		int numChars = m_edtTitle.GetLine(0, (LPTSTR)title, 127);
 		title[numChars] = 0;
 		
@@ -87,7 +88,7 @@ LRESULT CManageOpenWithDlg::OnCloseDialog(WORD /*wNotifyCode*/, WORD wID, HWND /
 		numChars = m_edtApplication.GetLine(0, (LPTSTR)application, MAX_PATH);
 		application[numChars] = 0;
 
-		TCHAR shortcut[63];
+		TCHAR shortcut[63 + 1];
 		numChars = m_edtShortcut.GetLine(0, (LPTSTR)shortcut, 63);
 		shortcut[numChars] = 0;
 
@@ -174,7 +175,7 @@ LRESULT CManageOpenWithDlg::OnEditEntry(WORD /*wNotifyCode*/, WORD wID, HWND /*h
 }
 
 LRESULT CManageOpenWithDlg::OnBrowse(WORD /*wNotifyCode*/, WORD wID, HWND /*hWndCtl*/, BOOL& /*bHandled*/) {
-	CFileDialog fileDlg(TRUE, _T(".exe"), _T(""), 
+	CSystemFileDialog fileDlg(true, _T(".exe"), _T(""), 
 		OFN_EXPLORER | OFN_ENABLESIZING | OFN_HIDEREADONLY | OFN_DONTADDTORECENT,
 		Helpers::CReplacePipe(CString(CNLS::GetString(_T("Applications"))) + _T(" (*.exe)|*.exe|") +
 		CNLS::GetString(_T("All Files")) + _T("|*.*|")), m_hWnd);

@@ -42,6 +42,7 @@
 	<?define AvifDllFolder = "$(var.JPEGView.ProjectDir)\libavif\$(var.DllBinFolder)" ?>
 	<?define LcmsDllFolder = "$(var.JPEGView.ProjectDir)\lcms2\$(var.DllBinFolder)" ?>
 	<?define RawDllFolder = "$(var.JPEGView.ProjectDir)\libraw\$(var.DllBinFolder)" ?>
+	<?define bit7zDllFolder = "$(var.JPEGView.ProjectDir)\bit7z\$(var.DllBinFolder)" ?>
 
 	<!--
 		====================================================================================
@@ -223,6 +224,9 @@
 				<ComponentRef Id="heifDLL"/>
 				<ComponentRef Id="avifDLL"/>
 			</Feature>
+			<Feature Id="FeatureCBZ" Title="Manga Support (CBZ, CB7)">
+				<ComponentRef Id="sevenZipDLL"/>
+			</Feature>
 			<!-- dcraw is compiled into JPEGView, but doesn't support the latest (modern) camera formats -->
 			<Feature Id="FeatureRAW" Title="Camera RAW Files Support (modern cameras)">
 				<ComponentRef Id="rawDLL"/>
@@ -242,11 +246,14 @@
 				<ComponentRef Id="JPEGView_ru.ini"/>
 				<ComponentRef Id="JPEGView_ru.ini.tpl"/>
 				<ComponentRef Id="KeyMap.txt.default"/>
+				<ComponentRef Id="KeyMap.txt.default_ru"/>
 				<ComponentRef Id="symbols.km"/>
-				<!-- <ComponentRef Id="KeyMap_ru.txt"/> -->
 			</Feature>
 			<Feature Id="Docs" Title="Documentation">
+				<ComponentRef Id="CHANGELOG.txt"/>
 				<ComponentRef Id="LICENSE.txt"/>
+				<ComponentRef Id="HowToInstall.txt"/>
+				<ComponentRef Id="HowToInstall_ru.txt"/>
 				<ComponentRef Id="readme.html"/>
 				<ComponentRef Id="readme_ru.html"/>
 				<ComponentRef Id="readme_uk.html"/>
@@ -255,6 +262,7 @@
 			</Feature>
 			<Feature Id="Localization" Title="Localization Strings">
 				<ComponentRef Id="strings.txt" />
+				<ComponentRef Id="strings_ar.txt" />
 				<ComponentRef Id="strings_be.txt" />
 				<ComponentRef Id="strings_bg.txt" />
 				<ComponentRef Id="strings_cs.txt" />
@@ -409,8 +417,38 @@
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)" Name="ApplicationIcon" Value="[APPLICATIONFOLDER]JPEGView.exe,0" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)" Name="ApplicationName" Value="!(loc.ApplicationName)" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\DefaultIcon" Value="[APPLICATIONFOLDER]JPEGView.exe,1" Type="string" />
+
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".avif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".bmp" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".gif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".heic" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".heif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".jpeg" Value="JPEGView.Document" Type="string" />
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".jpg" Value="JPEGView.Document" Type="string" />
-						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="application/jpg" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".jxl" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".png" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".qoi" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".tga" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".tif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".tiff" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".webp" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".cb7" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\FileAssociations" Name=".cbz" Value="JPEGView.Document" Type="string" />
+
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/avif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/bmp" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/gif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/heic" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/heif" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/jpeg" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/jxl" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/png" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/x-tga" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/tiff" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="image/webp" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="application/x-cb7" Value="JPEGView.Document" Type="string" />
+						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\MIMEAssociations" Name="application/x-cbz" Value="JPEGView.Document" Type="string" />
+
 						<RegistryValue Root="HKLM" Key="$(var.HKLMCapabilities)\shell\Open\command" Value="&quot;[APPLICATIONFOLDER]JPEGView.exe&quot; &quot;%1&quot;" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\RegisteredApplications" Name="JPEGView" Value="$(var.HKLMCapabilities)" Type="string" />
 
@@ -439,6 +477,8 @@
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".tga" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".qoi" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".psd" Value="" Type="string" />
+						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".cbz" Value="" Type="string" />
+						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".cb7" Value="" Type="string" />
 						<!-- csFileEndingsRAW -->
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".pef" Value="" Type="string" />
 						<RegistryValue Root="HKLM" Key="SOFTWARE\Classes\Applications\JPEGView.exe\SupportedTypes" Name=".dng" Value="" Type="string" />
@@ -532,7 +572,9 @@
 					<Component Id="WICLoaderDLL" Guid="742ca948-b7d3-4ca4-9aab-2592616416ed">
 						<File Id="WICLoader.dll" Name="WICLoader.dll" Source="$(var.WICLoader.TargetDir)WICLoader.dll" />
 					</Component>
-
+					<Component Id="sevenZipDLL" Guid="6215c4a0-ea36-463c-8dd8-072bc3748d87">
+						<File Id="sevenZipDLL" Name="7z.dll" Source="$(var.bit7zDllFolder)\7z.dll"  KeyPath="yes" />
+					</Component>
 
 					<!-- initially autogenerated with a batch file -->
 
@@ -555,18 +597,27 @@
 					<Component Id="KeyMap.txt.default" Guid="*">
 						<File Id="KeyMap.txt.default" Name="KeyMap.txt.default" Source="$(var.JPEGView.TargetDir)KeyMap.txt.default" />
 					</Component>
+					<Component Id="KeyMap.txt.default_ru" Guid="*">
+						<File Id="KeyMap.txt.default_ru" Name="KeyMap.txt.default_ru" Source="$(var.JPEGView.TargetDir)KeyMap.txt.default_ru" />
+					</Component>
 					<Component Id="symbols.km" Guid="*">
 						<File Id="symbols.km" Name="symbols.km" Source="$(var.JPEGView.TargetDir)symbols.km" />
 					</Component>
-					<!--
-					<Component Id="KeyMap_ru.txt" Guid="*">
-						<File Id="KeyMap_ru.txt" Name="KeyMap_ru.txt" Source="$(var.JPEGView.TargetDir)KeyMap_ru.txt" />
-					</Component>
-					-->
 
+					<Component Id="CHANGELOG.txt" Guid="*">
+						<File Id="CHANGELOG.txt" Name="CHANGELOG.txt" Source="$(var.JPEGView.TargetDir)CHANGELOG.txt" />
+					</Component>
 					<Component Id="LICENSE.txt" Guid="*">
 						<File Id="LICENSE.txt" Name="LICENSE.txt" Source="$(var.JPEGView.TargetDir)LICENSE.txt" />
 					</Component>
+
+					<Component Id="HowToInstall.txt" Guid="*">
+						<File Id="HowToInstall.txt" Name="HowToInstall.txt" Source="$(var.JPEGView.TargetDir)HowToInstall.txt" />
+					</Component>
+					<Component Id="HowToInstall_ru.txt" Guid="*">
+						<File Id="HowToInstall_ru.txt" Name="HowToInstall_ru.txt" Source="$(var.JPEGView.TargetDir)HowToInstall_ru.txt" />
+					</Component>
+					
 					<Component Id="readme.html" Guid="*">
 						<File Id="readme.html" Name="readme.html" Source="$(var.JPEGView.TargetDir)readme.html" />
 					</Component>
@@ -586,6 +637,9 @@
 
 					<Component Id="strings.txt" Guid="*">
 						<File Id="strings.txt" Name="strings.txt" Source="$(var.JPEGView.TargetDir)strings.txt" />
+					</Component>
+					<Component Id="strings_ar.txt" Guid="*">
+						<File Id="strings_ar.txt" Name="strings_ar.txt" Source="$(var.JPEGView.TargetDir)strings_ar.txt" />
 					</Component>
 					<Component Id="strings_be.txt" Guid="*">
 						<File Id="strings_be.txt" Name="strings_be.txt" Source="$(var.JPEGView.TargetDir)strings_be.txt" />
