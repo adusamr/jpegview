@@ -4,6 +4,33 @@
 #include "MaxImageDef.h"
 #include "ICCProfileTransform.h"
 
+// ICC profile created from the nclx color profile (color primaries and transfer characteristics, e.g. Display P3)
+// of an image without ICC profile, empty if the image has no nclx profile or is sRGB
+static std::vector<unsigned char> GetCICPProfile(heif::ImageHandle& handle, const heif::Image& image) {
+	int nPrimaries = -1, nTransfer = -1;
+	heif_color_profile_nclx* nclx = NULL;
+	heif_error error = heif_image_handle_get_nclx_color_profile(handle.get_raw_image_handle(), &nclx);
+	if (error.code == heif_error_Ok && nclx != NULL) {
+		nPrimaries = nclx->color_primaries;
+		nTransfer = nclx->transfer_characteristics;
+	}
+	if (nclx != NULL) {
+		heif_nclx_color_profile_free(nclx);
+	}
+	if (nPrimaries < 0) {
+		// nclx profile stored in the bitstream instead of a colr box
+		try {
+			heif::ColorProfile_nclx imageNclx = image.get_nclx_color_profile();
+			nPrimaries = imageNclx.get_color_primaries();
+			nTransfer = imageNclx.get_transfer_characteristics();
+		} catch (...) {}
+	}
+	if (nPrimaries < 0) {
+		return std::vector<unsigned char>();
+	}
+	return ICCProfileTransform::CreateProfileFromCICP(nPrimaries, nTransfer);
+}
+
 void * HeifReader::ReadImage(int &width,
 					   int &height,
 					   int &nchannels,
@@ -50,6 +77,9 @@ void * HeifReader::ReadImage(int &width,
 		return NULL;
 	}
 	std::vector<uint8_t> iccp = image.get_raw_color_profile();
+	if (iccp.empty()) {
+		iccp = GetCICPProfile(handle, image);
+	}
 	void* transform = ICCProfileTransform::CreateTransform(iccp.data(), iccp.size(), ICCProfileTransform::FORMAT_RGBA);
 	size_t i, j;
 	if (!ICCProfileTransform::DoTransform(transform, data, pPixelData, width, height, stride=stride)) {

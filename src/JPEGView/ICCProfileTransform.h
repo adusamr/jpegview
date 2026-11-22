@@ -16,6 +16,8 @@ public:
 		FORMAT_RGB,
 		FORMAT_Lab,
 		FORMAT_LabA,
+		FORMAT_CMYK, // 4 bytes C, M, Y, K, 0 = no ink
+		FORMAT_CMYK_INVERTED, // 4 bytes C, M, Y, K, 255 = no ink (Adobe CMYK JPEGs)
 	};
 
 	// Create a transform from given ICC Profile to standard sRGB color space.
@@ -42,6 +44,26 @@ public:
 	static void DeleteTransform(void* transform);
 
 	static void* CreateLabTransform(PixelFormat format);
+
+	// Create a transform from a color space that can hold colors outside of sRGB, but cannot be kept with the image
+	// (only RGB profiles can be applied when painting), to the wide gamut working space (see CaptureWideGamutProfile()).
+	// format is FORMAT_CMYK or FORMAT_CMYK_INVERTED (profile is the embedded CMYK profile, output BGR)
+	// or FORMAT_Lab / FORMAT_LabA (CIELAB D50, profile is ignored, output BGR / BGRA).
+	// Returns NULL if KeepEmbeddedColorSpace() is false or the transform cannot be created - then convert to sRGB as before.
+	static void* CreateWideGamutTransform(const void* profile, unsigned int size, PixelFormat format);
+
+	// Stores the profile of the wide gamut working space in the capture slot (see GetCapturedProfile()).
+	// To be called after pixels were successfully converted with a transform from CreateWideGamutTransform().
+	// The working space has the Rec. 2020 primaries and the sRGB tone curve, it is only used for these images.
+	static bool CaptureWideGamutProfile();
+
+	// Creates an RGB ICC profile for the color primaries and transfer characteristics given as CICP code points
+	// (ITU-T H.273, e.g. nclx boxes of HEIF/AVIF images without ICC profile). Returns an empty vector if no
+	// conversion is needed (sRGB) or possible (unsupported primaries, HDR transfer functions like PQ and HLG).
+	static std::vector<unsigned char> CreateProfileFromCICP(int colorPrimaries, int transferCharacteristics);
+
+	// True if the profile is usable and a CMYK profile
+	static bool IsCMYKProfile(const void* profile, unsigned int size);
 
 	// True if images with an embedded RGB profile keep their pixels in the color space of that profile instead of
 	// being converted to sRGB when loaded. They are converted directly to the display profile when painted, so colors

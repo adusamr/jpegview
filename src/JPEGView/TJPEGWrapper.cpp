@@ -62,6 +62,58 @@ void * TurboJpeg::ReadImage(int &width,
 	return pPixelData;
 }
 
+void * TurboJpeg::ReadImageCMYK(int &width,
+					   int &height,
+					   TJSAMP &chromoSubsampling,
+					   bool &outOfMemory,
+					   const void *buffer,
+					   int sizebytes,
+					   void *transformCMYKToBGR)
+{
+	outOfMemory = false;
+	width = height = 0;
+	chromoSubsampling = TJSAMP_420;
+
+	if (transformCMYKToBGR == NULL) {
+		return NULL;
+	}
+	tjhandle hDecoder = tj3Init(TJINIT_DECOMPRESS);
+	if (hDecoder == NULL) {
+		return NULL;
+	}
+
+	unsigned char* pPixelData = NULL;
+	if (tj3DecompressHeader(hDecoder, (unsigned char*)buffer, sizebytes) == 0) {
+		int nColorSpace = tj3Get(hDecoder, TJPARAM_COLORSPACE);
+		width = tj3Get(hDecoder, TJPARAM_JPEGWIDTH);
+		height = tj3Get(hDecoder, TJPARAM_JPEGHEIGHT);
+		chromoSubsampling = (TJSAMP)tj3Get(hDecoder, TJPARAM_SUBSAMP);
+		if (nColorSpace != TJCS_CMYK && nColorSpace != TJCS_YCCK) {
+			// not a CMYK JPEG
+		} else if (abs((double)width * height) > MAX_IMAGE_PIXELS) {
+			outOfMemory = true;
+		} else if (width > 0 && height > 0 && width <= MAX_IMAGE_DIMENSION && height <= MAX_IMAGE_DIMENSION && chromoSubsampling != TJSAMP_UNKNOWN) {
+			// CMYK pixels as stored in the JPEG (YCCK is converted to CMYK by the decoder), the transform knows if they are inverted
+			unsigned char* pCMYK = new(std::nothrow) unsigned char[static_cast<std::size_t>(width) * 4 * height];
+			pPixelData = new(std::nothrow) unsigned char[TJPAD(static_cast<std::size_t>(width) * 3) * height];
+			if (pCMYK == NULL || pPixelData == NULL) {
+				outOfMemory = true;
+				delete[] pPixelData;
+				pPixelData = NULL;
+			} else if (tj3Decompress8(hDecoder, (unsigned char*)buffer, sizebytes, pCMYK, width * 4, TJPF_CMYK) != 0 ||
+				!ICCProfileTransform::DoTransform(transformCMYKToBGR, pCMYK, pPixelData, width, height, width * 4)) {
+				delete[] pPixelData;
+				pPixelData = NULL;
+			}
+			delete[] pCMYK;
+		}
+	}
+
+	tj3Destroy(hDecoder);
+
+	return pPixelData;
+}
+
 void * TurboJpeg::Compress(const void *source,
 					  int width,
 					  int height,

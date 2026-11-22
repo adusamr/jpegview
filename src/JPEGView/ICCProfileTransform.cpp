@@ -93,6 +93,8 @@ bool ICCProfileTransform::DoTransform(void* transform, const void* inputBuffer, 
 		case TYPE_BGRA_8:
 		case TYPE_RGBA_8:
 		case TYPE_LabA_8:
+		case TYPE_CMYK_8:
+		case TYPE_CMYK_8_REV:
 			nchannels = 4;
 			break;
 		case TYPE_BGR_8:
@@ -103,9 +105,15 @@ bool ICCProfileTransform::DoTransform(void* transform, const void* inputBuffer, 
 		default:
 			return false;
 	}
+	// Only differs from the input for CMYK to BGR transforms (see CreateWideGamutTransform())
+	cmsUInt32Number outFormat = cmsGetTransformOutputFormat(transform);
+	int nOutChannels = T_CHANNELS(outFormat) + T_EXTRA(outFormat);
+	if (T_BYTES(outFormat) != 1 || (nOutChannels != 3 && nOutChannels != 4))
+		return false;
 	if (stride == 0)
 		stride = width * nchannels;
-	cmsDoTransformLineStride(transform, inputBuffer, outputBuffer, width, height, stride, Helpers::DoPadding(width * nchannels, 4), stride * height, Helpers::DoPadding(width * nchannels, 4) * height);
+	unsigned int nOutStride = Helpers::DoPadding(width * nOutChannels, 4);
+	cmsDoTransformLineStride(transform, inputBuffer, outputBuffer, width, height, stride, nOutStride, stride * height, nOutStride * height);
 	return true;
 }
 
@@ -309,6 +317,65 @@ namespace {
 		}
 		return sPath.Mid(sPath.ReverseFind(_T('\\')) + 1);
 	}
+
+	// Creates a matrix/shaper RGB profile and returns it serialized as ICC profile, empty on failure.
+	// Takes ownership of curve.
+	std::vector<unsigned char> CreateRGBProfileData(const cmsCIExyY& whitePoint, const cmsCIExyYTRIPLE& primaries, cmsToneCurve* curve, const wchar_t* sDescription) {
+		std::vector<unsigned char> data;
+		if (curve == NULL) {
+			return data;
+		}
+		cmsToneCurve* curves[3] = { curve, curve, curve };
+		cmsHPROFILE hProfile = cmsCreateRGBProfile(&whitePoint, &primaries, curves);
+		cmsFreeToneCurve(curve);
+		if (hProfile == NULL) {
+			return data;
+		}
+		cmsMLU* pDescription = cmsMLUalloc(NULL, 1);
+		if (pDescription != NULL) {
+			cmsMLUsetWide(pDescription, "en", "US", sDescription);
+			cmsWriteTag(hProfile, cmsSigProfileDescriptionTag, pDescription);
+			cmsMLUfree(pDescription);
+		}
+		cmsUInt32Number nSize = 0;
+		if (cmsSaveProfileToMem(hProfile, NULL, &nSize) && nSize > 128) {
+			data.resize(nSize);
+			if (!cmsSaveProfileToMem(hProfile, data.data(), &nSize)) {
+				data.clear();
+			}
+		}
+		cmsCloseProfile(hProfile);
+		return data;
+	}
+
+	cmsToneCurve* CreateSRGBToneCurve() {
+		const cmsFloat64Number params[5] = { 2.4, 1.0 / 1.055, 0.055 / 1.055, 1.0 / 12.92, 0.04045 };
+		return cmsBuildParametricToneCurve(NULL, 4, params);
+	}
+
+	cmsToneCurve* CreateGammaToneCurve(double dGamma) {
+		const cmsFloat64Number params[1] = { dGamma };
+		return cmsBuildParametricToneCurve(NULL, 1, params);
+	}
+
+	const cmsCIExyY cD65 = { 0.3127, 0.3290, 1.0 };
+
+	// Working space for CMYK and Lab images (see ICCProfileTransform::CreateWideGamutTransform()): Rec. 2020 primaries,
+	// that contain the gamut of print processes and practically all real surface colors, with the sRGB tone curve
+	// to keep 8 bit quantization steps small. Created once, the same pointer is shared by all images using it.
+	ICCProfilePtr GetWideGamutProfile() {
+		static const ICCProfilePtr s_profile = []() -> ICCProfilePtr {
+			try {
+				const cmsCIExyYTRIPLE rec2020 = { { 0.708, 0.292, 1.0 }, { 0.170, 0.797, 1.0 }, { 0.131, 0.046, 1.0 } };
+				std::vector<unsigned char> data = CreateRGBProfileData(cD65, rec2020, CreateSRGBToneCurve(), L"JPEGView working space (Rec. 2020 primaries, sRGB tone curve)");
+				if (!data.empty()) {
+					return std::make_shared<const std::vector<unsigned char>>(std::move(data));
+				}
+			} catch (...) {} // lcms2.dll not found
+			return ICCProfilePtr();
+		}();
+		return s_profile;
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -444,6 +511,178 @@ CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& profile) {
 		}
 	} catch (...) {}
 	return sName;
+}
+
+bool ICCProfileTransform::IsCMYKProfile(const void* profile, unsigned int size) {
+	if (profile == NULL || size < 128) return false;
+	bool bCMYK = false;
+	try {
+		cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile, size);
+		if (hProfile != NULL) {
+			bCMYK = cmsGetColorSpace(hProfile) == cmsSigCmykData;
+			cmsCloseProfile(hProfile);
+		}
+	} catch (...) {}
+	return bCMYK;
+}
+
+void* ICCProfileTransform::CreateWideGamutTransform(const void* profile, unsigned int size, PixelFormat format) {
+	if (!KeepEmbeddedColorSpace()) {
+		return NULL;
+	}
+	cmsHTRANSFORM transform = NULL;
+	try {
+		ICCProfilePtr wideGamutProfile = GetWideGamutProfile();
+		if (wideGamutProfile == NULL) {
+			return NULL;
+		}
+		cmsUInt32Number inFormat, outFormat;
+		cmsUInt32Number flags = cmsFLAGS_BLACKPOINTCOMPENSATION;
+		cmsHPROFILE hIn = NULL;
+		switch (format) {
+			case FORMAT_CMYK:
+			case FORMAT_CMYK_INVERTED:
+				if (profile == NULL || size < 128) return NULL;
+				hIn = cmsOpenProfileFromMem(profile, size);
+				if (hIn != NULL && cmsGetColorSpace(hIn) != cmsSigCmykData) {
+					cmsCloseProfile(hIn);
+					return NULL;
+				}
+				inFormat = (format == FORMAT_CMYK) ? TYPE_CMYK_8 : TYPE_CMYK_8_REV;
+				outFormat = TYPE_BGR_8;
+				break;
+			case FORMAT_Lab:
+				hIn = cmsCreateLab4Profile(cmsD50_xyY());
+				inFormat = TYPE_Lab_8;
+				outFormat = TYPE_BGR_8;
+				break;
+			case FORMAT_LabA:
+				hIn = cmsCreateLab4Profile(cmsD50_xyY());
+				inFormat = TYPE_LabA_8;
+				outFormat = TYPE_BGRA_8;
+				flags |= cmsFLAGS_COPY_ALPHA;
+				break;
+			default:
+				return NULL;
+		}
+		cmsHPROFILE hOut = cmsOpenProfileFromMem(wideGamutProfile->data(), (cmsUInt32Number)wideGamutProfile->size());
+		if (hIn != NULL && hOut != NULL) {
+			transform = cmsCreateTransform(hIn, inFormat, hOut, outFormat, INTENT_RELATIVE_COLORIMETRIC, flags);
+		}
+		if (hIn != NULL) cmsCloseProfile(hIn);
+		if (hOut != NULL) cmsCloseProfile(hOut);
+	} catch (...) {
+		transform = NULL;
+	}
+	return transform;
+}
+
+bool ICCProfileTransform::CaptureWideGamutProfile() {
+	if (!KeepEmbeddedColorSpace()) {
+		return false;
+	}
+	ICCProfilePtr wideGamutProfile = GetWideGamutProfile();
+	if (wideGamutProfile == NULL) {
+		return false;
+	}
+	t_capturedProfile = wideGamutProfile;
+	return true;
+}
+
+std::vector<unsigned char> ICCProfileTransform::CreateProfileFromCICP(int colorPrimaries, int transferCharacteristics) {
+	std::vector<unsigned char> data;
+
+	// Transfer characteristics. The BT.709 family (camera OETFs) is treated as sRGB, as other image viewers and
+	// browsers do in practice, so the common 1/1/x (BT.709) tagged images look exactly as before.
+	enum { CURVE_SRGB, CURVE_GAMMA22, CURVE_GAMMA28, CURVE_LINEAR } eCurve;
+	const wchar_t* sCurveName;
+	switch (transferCharacteristics) {
+		case 0: // unknown
+		case 1: // BT.709
+		case 2: // unspecified
+		case 6: // BT.601
+		case 13: // sRGB (IEC 61966-2-1)
+		case 14: // BT.2020 10 bit
+		case 15: // BT.2020 12 bit
+			eCurve = CURVE_SRGB; sCurveName = L"sRGB";
+			break;
+		case 4: // BT.470 System M
+			eCurve = CURVE_GAMMA22; sCurveName = L"gamma 2.2";
+			break;
+		case 5: // BT.470 System B, G
+			eCurve = CURVE_GAMMA28; sCurveName = L"gamma 2.8";
+			break;
+		case 8:
+			eCurve = CURVE_LINEAR; sCurveName = L"linear";
+			break;
+		default:
+			return data; // HDR (PQ, HLG) and rarely used transfer functions: not handled, shown as before
+	}
+
+	// Color primaries and white point
+	cmsCIExyY whitePoint = cD65;
+	cmsCIExyYTRIPLE primaries;
+	const wchar_t* sPrimariesName;
+	switch (colorPrimaries) {
+		case 0: // unknown
+		case 1: // BT.709, sRGB
+		case 2: // unspecified
+			if (eCurve == CURVE_SRGB) {
+				return data; // sRGB, nothing to do
+			}
+			primaries = { { 0.640, 0.330, 1.0 }, { 0.300, 0.600, 1.0 }, { 0.150, 0.060, 1.0 } };
+			sPrimariesName = L"BT.709";
+			break;
+		case 4: // BT.470 System M
+			primaries = { { 0.670, 0.330, 1.0 }, { 0.210, 0.710, 1.0 }, { 0.140, 0.080, 1.0 } };
+			whitePoint = { 0.310, 0.316, 1.0 }; // illuminant C
+			sPrimariesName = L"BT.470 M";
+			break;
+		case 5: // BT.470 System B, G
+			primaries = { { 0.640, 0.330, 1.0 }, { 0.290, 0.600, 1.0 }, { 0.150, 0.060, 1.0 } };
+			sPrimariesName = L"BT.470 BG";
+			break;
+		case 6: // BT.601
+		case 7: // SMPTE 240M
+			primaries = { { 0.630, 0.340, 1.0 }, { 0.310, 0.595, 1.0 }, { 0.155, 0.070, 1.0 } };
+			sPrimariesName = L"BT.601";
+			break;
+		case 9: // BT.2020, BT.2100
+			primaries = { { 0.708, 0.292, 1.0 }, { 0.170, 0.797, 1.0 }, { 0.131, 0.046, 1.0 } };
+			sPrimariesName = L"BT.2020";
+			break;
+		case 11: // SMPTE RP 431-2 (DCI-P3)
+			primaries = { { 0.680, 0.320, 1.0 }, { 0.265, 0.690, 1.0 }, { 0.150, 0.060, 1.0 } };
+			whitePoint = { 0.314, 0.351, 1.0 };
+			sPrimariesName = L"DCI-P3";
+			break;
+		case 12: // SMPTE EG 432-1 (Display P3)
+			primaries = { { 0.680, 0.320, 1.0 }, { 0.265, 0.690, 1.0 }, { 0.150, 0.060, 1.0 } };
+			sPrimariesName = L"Display P3";
+			break;
+		case 22: // EBU Tech. 3213-E
+			primaries = { { 0.630, 0.340, 1.0 }, { 0.295, 0.605, 1.0 }, { 0.155, 0.077, 1.0 } };
+			sPrimariesName = L"EBU 3213-E";
+			break;
+		default:
+			return data; // generic film, XYZ and unknown values: not handled, shown as before
+	}
+
+	try {
+		cmsToneCurve* curve = NULL;
+		switch (eCurve) {
+			case CURVE_SRGB: curve = CreateSRGBToneCurve(); break;
+			case CURVE_GAMMA22: curve = CreateGammaToneCurve(2.2); break;
+			case CURVE_GAMMA28: curve = CreateGammaToneCurve(2.8); break;
+			case CURVE_LINEAR: curve = CreateGammaToneCurve(1.0); break;
+		}
+		CString sDescription;
+		sDescription.Format(_T("%ls, %ls tone curve (CICP %d/%d)"), sPrimariesName, sCurveName, colorPrimaries, transferCharacteristics);
+		data = CreateRGBProfileData(whitePoint, primaries, curve, CT2CW(sDescription));
+	} catch (...) {
+		data.clear(); // lcms2.dll not found
+	}
+	return data;
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -651,6 +890,10 @@ bool ICCProfileTransform::IsSRGBProfile(const void* /* profile */, unsigned int 
 bool ICCProfileTransform::IsAvailable() { return false; }
 bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& /* profile */, void* /* pixels */, int /* width */, int /* height */, int /* bytesPerPixel */) { return false; }
 CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& /* profile */) { return CString(); }
+bool ICCProfileTransform::IsCMYKProfile(const void* /* profile */, unsigned int /* size */) { return false; }
+void* ICCProfileTransform::CreateWideGamutTransform(const void* /* profile */, unsigned int /* size */, PixelFormat /* format */) { return NULL; }
+bool ICCProfileTransform::CaptureWideGamutProfile() { return false; }
+std::vector<unsigned char> ICCProfileTransform::CreateProfileFromCICP(int /* colorPrimaries */, int /* transferCharacteristics */) { return std::vector<unsigned char>(); }
 
 void* CDisplayColorProfile::sm_transform = NULL;
 std::vector<unsigned char> CDisplayColorProfile::sm_displayProfile;

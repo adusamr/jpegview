@@ -2,6 +2,7 @@
 #include "StdAfx.h"
 #include "ImageLoadThread.h"
 #include <gdiplus.h>
+#include <wincodec.h>
 #include "JPEGImage.h"
 #include "MessageDef.h"
 #include "Helpers.h"
@@ -189,6 +190,102 @@ static std::vector<unsigned char> GetJPEGICCProfile(const void* pBuffer, long lo
 		profile.insert(profile.end(), chunks[n].begin(), chunks[n].end());
 	}
 	return profile;
+}
+
+// True if the JPEG stream has an Adobe APP14 marker. CMYK JPEGs with this marker (written by Photoshop and most other
+// applications) store inverted CMYK values, as handled by other image viewers and browsers.
+static bool HasJPEGAdobeMarker(const void* pBuffer, long long nSize) {
+	const unsigned char* p = (const unsigned char*)pBuffer;
+	if (p == NULL || nSize < 4 || p[0] != 0xFF || p[1] != 0xD8) {
+		return false;
+	}
+	long long i = 2;
+	while (i + 4 <= nSize && p[i] == 0xFF) {
+		unsigned char marker = p[i + 1];
+		if (marker == 0xFF) { i++; continue; } // fill byte
+		if (marker == 0xD9 || marker == 0xDA) break; // EOI or start of scan: no more APP markers
+		if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD7)) { i += 2; continue; } // markers without length
+		int nLength = (p[i + 2] << 8) | p[i + 3];
+		if (nLength < 2 || i + 2 + nLength > nSize) break;
+		if (marker == 0xEE && nLength >= 7 && memcmp(p + i + 4, "Adobe", 5) == 0) {
+			return true;
+		}
+		i += 2 + nLength;
+	}
+	return false;
+}
+
+// WIC identifiers, defined here to not depend on windowscodecs.lib (WIC is not available on all systems)
+static const CLSID JV_CLSID_WICImagingFactory = { 0xcacaf262, 0x9370, 0x4615, { 0xa1, 0x3b, 0x9f, 0x55, 0x39, 0xda, 0x4c, 0x0a } };
+static const GUID JV_GUID_WICPixelFormat32bppCMYK = { 0x6fddc324, 0x4e03, 0x4bfe, { 0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x1c } };
+static const GUID JV_GUID_WICPixelFormat64bppCMYK = { 0x6fddc324, 0x4e03, 0x4bfe, { 0xb1, 0x85, 0x3d, 0x77, 0x76, 0x8d, 0xc9, 0x1f } };
+
+// Reads a frame of a CMYK image (TIFF) with WIC, as GDI+ only delivers RGB, and converts it with the embedded CMYK profile
+// to the wide gamut working space (see ICCProfileTransform::CreateWideGamutTransform()).
+// Returns NULL if the image is not 8 or 16 bit CMYK without alpha or cannot be read - then GDI+ converts it to sRGB as before.
+static CJPEGImage* ReadCMYKImageWithWIC(LPCWSTR sFileName, int nFrameIndex, const std::vector<unsigned char>& profile, bool& isOutOfMemory) {
+	isOutOfMemory = false;
+	CJPEGImage* pImage = NULL;
+	void* transform = NULL;
+	unsigned char* pCMYK = NULL;
+	unsigned char* pDIB = NULL;
+	try {
+		CComPtr<IWICImagingFactory> pFactory;
+		CComPtr<IWICBitmapDecoder> pDecoder;
+		CComPtr<IWICBitmapFrameDecode> pFrame;
+		CComPtr<IWICFormatConverter> pConverter;
+		IWICBitmapSource* pSource = NULL; // not ref counted, pFrame or pConverter
+		UINT nFrameCount = 0, nWidth = 0, nHeight = 0;
+		WICPixelFormatGUID pixelFormat;
+		if (FAILED(::CoCreateInstance(JV_CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER, __uuidof(IWICImagingFactory), (void**)&pFactory)) ||
+			FAILED(pFactory->CreateDecoderFromFilename(sFileName, NULL, GENERIC_READ, WICDecodeMetadataCacheOnDemand, &pDecoder)) ||
+			FAILED(pDecoder->GetFrameCount(&nFrameCount)) || nFrameCount == 0) {
+			return NULL;
+		}
+		nFrameIndex = max(0, min((int)nFrameCount - 1, nFrameIndex));
+		if (FAILED(pDecoder->GetFrame(nFrameIndex, &pFrame)) || FAILED(pFrame->GetPixelFormat(&pixelFormat))) {
+			return NULL;
+		}
+		if (IsEqualGUID(pixelFormat, JV_GUID_WICPixelFormat32bppCMYK)) {
+			pSource = pFrame;
+		} else if (IsEqualGUID(pixelFormat, JV_GUID_WICPixelFormat64bppCMYK)) {
+			if (FAILED(pFactory->CreateFormatConverter(&pConverter)) ||
+				FAILED(pConverter->Initialize(pFrame, JV_GUID_WICPixelFormat32bppCMYK, WICBitmapDitherTypeNone, NULL, 0.0, WICBitmapPaletteTypeCustom))) {
+				return NULL;
+			}
+			pSource = pConverter;
+		} else {
+			return NULL; // not CMYK or with alpha channel
+		}
+		if (FAILED(pSource->GetSize(&nWidth, &nHeight)) || nWidth == 0 || nHeight == 0 ||
+			nWidth > MAX_IMAGE_DIMENSION || nHeight > MAX_IMAGE_DIMENSION) {
+			return NULL;
+		}
+		if ((double)nWidth * nHeight > MAX_IMAGE_PIXELS || (double)nWidth * nHeight * 4 > UINT_MAX) {
+			isOutOfMemory = true;
+			return NULL;
+		}
+		transform = ICCProfileTransform::CreateWideGamutTransform(profile.data(), (unsigned int)profile.size(), ICCProfileTransform::FORMAT_CMYK);
+		if (transform == NULL) {
+			return NULL;
+		}
+		pCMYK = new(std::nothrow) unsigned char[(size_t)nWidth * 4 * nHeight];
+		pDIB = new(std::nothrow) unsigned char[(size_t)Helpers::DoPadding(nWidth * 3, 4) * nHeight];
+		if (pCMYK == NULL || pDIB == NULL) {
+			isOutOfMemory = true;
+		} else if (SUCCEEDED(pSource->CopyPixels(NULL, nWidth * 4, nWidth * 4 * nHeight, pCMYK)) &&
+			ICCProfileTransform::DoTransform(transform, pCMYK, pDIB, nWidth, nHeight, nWidth * 4)) {
+			pImage = new CJPEGImage(nWidth, nHeight, pDIB, NULL, 3, 0, IF_TIFF, false, nFrameIndex, nFrameCount, 100);
+			pDIB = NULL; // owned by the image
+		}
+	} catch (...) {
+		delete pImage;
+		pImage = NULL;
+	}
+	ICCProfileTransform::DeleteTransform(transform);
+	delete[] pCMYK;
+	delete[] pDIB;
+	return pImage;
 }
 
 static CJPEGImage* ConvertGDIPlusBitmapToJPEGImage(Gdiplus::Bitmap* pBitmap, int nFrameIndex, void* pEXIFData, 
@@ -656,13 +753,20 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 			bool bKeepColorSpace = ICCProfileTransform::KeepEmbeddedColorSpace();
 			bool bProfileHandled = true;
 			void* pTransformToSRGB = NULL; // embedded profile to sRGB, applied after decoding with TurboJPEG
+			void* pTransformCMYK = NULL; // embedded CMYK profile to the wide gamut working space, see below
 			if (CSettingsProvider::This().UseEmbeddedColorProfiles()) {
 				std::vector<unsigned char> iccProfile = GetJPEGICCProfile(pBuffer, nFileSize);
 				unsigned int nProfileSize = (unsigned int)iccProfile.size();
 				if (iccProfile.empty()) {
 					// no profile: sRGB
 				} else if (!ICCProfileTransform::IsRGBProfile(iccProfile.data(), nProfileSize)) {
-					bProfileHandled = false; // CMYK or gray profile, or lcms2 not available
+					// CMYK images are converted to a wide gamut RGB working space that is kept with the image, as converting
+					// them to sRGB would clip colors outside of sRGB. Not possible with GDI+, the image is read with TurboJPEG.
+					if (bKeepColorSpace && ICCProfileTransform::IsCMYKProfile(iccProfile.data(), nProfileSize)) {
+						pTransformCMYK = ICCProfileTransform::CreateWideGamutTransform(iccProfile.data(), nProfileSize,
+							HasJPEGAdobeMarker(pBuffer, nFileSize) ? ICCProfileTransform::FORMAT_CMYK_INVERTED : ICCProfileTransform::FORMAT_CMYK);
+					}
+					bProfileHandled = pTransformCMYK != NULL; // else: CMYK or gray profile, or lcms2 not available
 				} else if (bKeepColorSpace) {
 					ICCProfileTransform::CaptureProfile(iccProfile.data(), nProfileSize); // not captured if sRGB
 				} else if (!ICCProfileTransform::IsSRGBProfile(iccProfile.data(), nProfileSize)) {
@@ -673,7 +777,7 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 			// ForceGDIPlus=true keeps using GDI+ color management unless the profile is kept with the image
 			bool bUseGDIPlusICM = CSettingsProvider::This().UseEmbeddedColorProfiles() &&
 				(!bProfileHandled || (CSettingsProvider::This().ForceGDIPlus() && !bKeepColorSpace));
-			bool bUseGDIPlus = CSettingsProvider::This().ForceGDIPlus() || bUseGDIPlusICM;
+			bool bUseGDIPlus = (CSettingsProvider::This().ForceGDIPlus() && pTransformCMYK == NULL) || bUseGDIPlusICM;
 			if (bUseGDIPlus) {
 				IStream* pStream = NULL;
 				if (::CreateStreamOnHGlobal(hFileBuffer, FALSE, &pStream) == S_OK) {
@@ -691,7 +795,25 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 					request->OutOfMemory = true;
 				}
 			}
-			if (!bUseGDIPlus || request->OutOfMemory) {
+			if (pTransformCMYK != NULL) {
+				int nWidth, nHeight;
+				TJSAMP eChromoSubSampling;
+				bool bOutOfMemory;
+				void* pPixelData = TurboJpeg::ReadImageCMYK(nWidth, nHeight, eChromoSubSampling, bOutOfMemory, pBuffer, nFileSize, pTransformCMYK);
+				if (pPixelData != NULL) {
+					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData,
+						Helpers::FindEXIFBlock(pBuffer, nFileSize), 3,
+						Helpers::CalculateJPEGFileHash(pBuffer, nFileSize), IF_JPEG, false, 0, 1, 0);
+					request->Image->SetJPEGComment(Helpers::GetJPEGComment(pBuffer, nFileSize));
+					request->Image->SetJPEGChromoSampling(eChromoSubSampling);
+					ICCProfileTransform::CaptureWideGamutProfile();
+				} else if (bOutOfMemory) {
+					request->OutOfMemory = true;
+				} else {
+					// failed, GDI+ converts the CMYK image to sRGB as before (see ProcessReadGDIPlusRequest())
+					ProcessReadGDIPlusRequest(request);
+				}
+			} else if (!bUseGDIPlus || request->OutOfMemory) {
 				int nWidth, nHeight, nBPP;
 				TJSAMP eChromoSubSampling;
 				bool bOutOfMemory;
@@ -725,6 +847,7 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 				}
 			}
 			ICCProfileTransform::DeleteTransform(pTransformToSRGB);
+			ICCProfileTransform::DeleteTransform(pTransformCMYK);
 		}
 	} catch (...) {
 		delete request->Image;
@@ -1227,9 +1350,20 @@ void CImageLoadThread::ProcessReadGDIPlusRequest(CRequest * request) {
 		m_pLastBitmap = pBitmap = new Gdiplus::Bitmap(sFileName, UseGDIPlusICM());
 		if (CSettingsProvider::This().UseEmbeddedColorProfiles() && !UseGDIPlusICM()) {
 			// The embedded profile is kept with the image, but only RGB profiles can be applied when painting.
-			// Let GDI+ convert images with other profiles (e.g. CMYK TIFF) to sRGB as before.
+			// CMYK TIFFs are read with WIC and converted to a wide gamut RGB working space that is kept with the image.
+			// Let GDI+ convert images with other profiles (e.g. gray) to sRGB as before.
 			std::vector<unsigned char> profile = GetGDIPlusICCProfile(pBitmap);
 			if (!profile.empty() && !ICCProfileTransform::IsRGBProfile(profile.data(), (unsigned int)profile.size())) {
+				if (GetBitmapFormat(pBitmap) == IF_TIFF && ICCProfileTransform::IsCMYKProfile(profile.data(), (unsigned int)profile.size())) {
+					bool isOutOfMemory = false;
+					CJPEGImage* pImage = ReadCMYKImageWithWIC(sFileName, request->FrameIndex, profile, isOutOfMemory);
+					if (pImage != NULL) {
+						DeleteCachedGDIBitmap(); // the cached bitmap must not be used for the next frame, it was read without color management
+						request->Image = pImage;
+						ICCProfileTransform::CaptureWideGamutProfile();
+						return;
+					}
+				}
 				delete pBitmap;
 				m_pLastBitmap = pBitmap = new Gdiplus::Bitmap(sFileName, TRUE);
 			}

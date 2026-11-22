@@ -124,6 +124,7 @@ CJPEGImage* PsdReader::ReadImage(LPCTSTR strFileName, Helpers::ETransparencyMode
 	char* pICCProfile = NULL;
 	unsigned int nICCProfileSize = 0;
 	void* transform = NULL;
+	bool bWideGamutTransform = false; // transform to the wide gamut working space, see ICCProfileTransform::CreateWideGamutTransform()
 	CJPEGImage* Image = NULL;
 	try {
 		long long nFileSize = Helpers::GetFileSize(hFile);
@@ -299,7 +300,13 @@ CJPEGImage* PsdReader::ReadImage(LPCTSTR strFileName, Helpers::ETransparencyMode
 		// Apply ICC Profile
 		if (nChannels == 3 || nChannels == 4) {
 			if (nColorMode == MODE_Lab) {
-				transform = ICCProfileTransform::CreateLabTransform(nChannels == 4 ? ICCProfileTransform::FORMAT_LabA : ICCProfileTransform::FORMAT_Lab);
+				// Lab colors can be far outside of sRGB: if possible, convert to a wide gamut working space that is kept with the image
+				ICCProfileTransform::PixelFormat eLabFormat = nChannels == 4 ? ICCProfileTransform::FORMAT_LabA : ICCProfileTransform::FORMAT_Lab;
+				transform = ICCProfileTransform::CreateWideGamutTransform(NULL, 0, eLabFormat);
+				bWideGamutTransform = transform != NULL;
+				if (transform == NULL) {
+					transform = ICCProfileTransform::CreateLabTransform(eLabFormat);
+				}
 				if (transform == NULL) {
 					// If we can't convert Lab to sRGB then just use the Lightness channel as grayscale
 					nChannels = min(nChannels, 1);
@@ -407,7 +414,7 @@ CJPEGImage* PsdReader::ReadImage(LPCTSTR strFileName, Helpers::ETransparencyMode
 			}
 		}
 
-		ICCProfileTransform::DoTransform(transform, pPixelData, pPixelData, nWidth, nHeight, nRowSize);
+		bool bTransformed = ICCProfileTransform::DoTransform(transform, pPixelData, pPixelData, nWidth, nHeight, nRowSize);
 
 		if (nChannels == 4) {
 			if (nColorMode == MODE_CMYK) {
@@ -422,6 +429,9 @@ CJPEGImage* PsdReader::ReadImage(LPCTSTR strFileName, Helpers::ETransparencyMode
 		}
 
 		Image = new CJPEGImage(nWidth, nHeight, pPixelData, pEXIFData, nChannels, 0, IF_PSD, false, 0, 1, 0);
+		if (bWideGamutTransform && bTransformed) {
+			ICCProfileTransform::CaptureWideGamutProfile();
+		}
 	} catch (...) {
 		delete Image;
 		Image = NULL;

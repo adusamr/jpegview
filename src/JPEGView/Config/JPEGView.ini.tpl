@@ -334,9 +334,13 @@ ForceGDIPlus=false
 ; If true (default), embedded ICC color profiles are used (JPEG, PNG, TIFF, WEBP, AVIF, HEIF, JXL, PSD, RAW).
 ; With display color management (DisplayColorProfile, see below) the image is converted directly from its embedded
 ; profile to the display profile when painted, which keeps colors outside of sRGB on wide gamut monitors.
+; CMYK images (JPEG, TIFF) and Lab PSDs are then converted to a wide gamut RGB working space (Rec. 2020 primaries)
+; instead of sRGB, so their colors outside of sRGB are kept as well.
+; HEIF and AVIF images without ICC profile use their nclx color information (e.g. Display P3) instead.
 ; Without display color management (DisplayColorProfile=none), images are converted to sRGB when loaded.
 ; This option makes loading slower only for JPEGs with a grayscale profile, which JPEGView then reads with GDI+
-; instead of TurboJPEG. (CMYK JPEGs are always read with GDI+, with or without this option.)
+; instead of TurboJPEG. (CMYK JPEGs are read with GDI+, with or without this option, unless display color
+; management is on.)
 UseEmbeddedColorProfiles=true
 
 ; Color profile of the display, used to show colors correctly on wide gamut or calibrated monitors.

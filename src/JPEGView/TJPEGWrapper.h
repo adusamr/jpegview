@@ -15,6 +15,17 @@ public:
 						 const void *buffer, // memory address containing jpeg compressed data.
 						 int sizebytes); // size of jpeg compressed data.
 
+	// Reads a CMYK (or YCCK) JPEG and converts it with the given lcms2 transform from CMYK to BGR
+	// (see ICCProfileTransform::CreateWideGamutTransform()). Returns data in the same form as ReadImage() with 3 bytes per pixel,
+	// NULL if the image is not a CMYK JPEG or cannot be read.
+	static void * ReadImageCMYK(int &width,
+						 int &height,
+						 TJSAMP &chromoSubsampling,
+						 bool &outOfMemory,
+						 const void *buffer,
+						 int sizebytes,
+						 void *transformCMYKToBGR);
+
 	// Compress image data into JPEG stream, returns compressed data.
 	// The returned buffer must be freed with Free()!
 	static void * Compress(const void *buffer, // address of image in memory, format must be 3 bytes per pixel BRGBGR with padding to 4 byte boundary

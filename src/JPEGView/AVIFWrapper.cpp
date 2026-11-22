@@ -139,8 +139,16 @@ void* AvifReader::ReadImage(int& width,
 	}
 
 	avifRWData icc = cache.decoder->image->icc;
-	if (cache.transform == NULL)
-		cache.transform = ICCProfileTransform::CreateTransform(icc.data, icc.size, ICCProfileTransform::FORMAT_BGRA);
+	if (cache.transform == NULL) {
+		if (icc.size > 0) {
+			cache.transform = ICCProfileTransform::CreateTransform(icc.data, icc.size, ICCProfileTransform::FORMAT_BGRA);
+		} else {
+			// No ICC profile: use the color primaries and transfer characteristics of the nclx box (e.g. Display P3)
+			std::vector<unsigned char> cicpProfile = ICCProfileTransform::CreateProfileFromCICP(
+				cache.decoder->image->colorPrimaries, cache.decoder->image->transferCharacteristics);
+			cache.transform = ICCProfileTransform::CreateTransform(cicpProfile.data(), (unsigned int)cicpProfile.size(), ICCProfileTransform::FORMAT_BGRA);
+		}
+	}
 	ICCProfileTransform::DoTransform(cache.transform, cache.rgb.pixels, cache.rgb.pixels, width, height);
 
 	avifRWData exif = cache.decoder->image->exif;
