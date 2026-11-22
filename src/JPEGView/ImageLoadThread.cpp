@@ -748,11 +748,10 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 		if (::ReadFile(hFile, pBuffer, nFileSize, (LPDWORD) &nNumBytesRead, NULL) && nNumBytesRead == nFileSize) {
 			// With UseEmbeddedColorProfiles=true, an embedded RGB profile is handled by JPEGView itself, so the fast TurboJPEG
 			// decoder can be used: either the profile is kept with the image and applied when painting (display color
-			// management), or the decoded pixels are converted to sRGB with lcms2. Only images with profiles that are not RGB
+			// management), or the decoded pixels are converted to sRGB with lcms2 by TurboJpeg::ReadImage(). Only images with profiles that are not RGB
 			// (e.g. CMYK or gray), or if lcms2 is not available, are read with GDI+ color management.
 			bool bKeepColorSpace = ICCProfileTransform::KeepEmbeddedColorSpace();
 			bool bProfileHandled = true;
-			void* pTransformToSRGB = NULL; // embedded profile to sRGB, applied after decoding with TurboJPEG
 			void* pTransformCMYK = NULL; // embedded CMYK profile to the wide gamut working space, see below
 			if (CSettingsProvider::This().UseEmbeddedColorProfiles()) {
 				std::vector<unsigned char> iccProfile = GetJPEGICCProfile(pBuffer, nFileSize);
@@ -770,8 +769,11 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 				} else if (bKeepColorSpace) {
 					ICCProfileTransform::CaptureProfile(iccProfile.data(), nProfileSize); // not captured if sRGB
 				} else if (!ICCProfileTransform::IsSRGBProfile(iccProfile.data(), nProfileSize)) {
-					pTransformToSRGB = ICCProfileTransform::CreateTransform(iccProfile.data(), nProfileSize, ICCProfileTransform::FORMAT_BGR);
+					// TurboJpeg::ReadImage() converts the pixels to sRGB itself, the transform is only created here to check
+					// that lcms2 can use the profile, else GDI+ color management is used
+					void* pTransformToSRGB = ICCProfileTransform::CreateTransform(iccProfile.data(), nProfileSize, ICCProfileTransform::FORMAT_BGR);
 					bProfileHandled = pTransformToSRGB != NULL;
+					ICCProfileTransform::DeleteTransform(pTransformToSRGB);
 				}
 			}
 			// ForceGDIPlus=true keeps using GDI+ color management unless the profile is kept with the image
@@ -829,10 +831,6 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 
 				// Color and b/w JPEG is supported
 				if (pPixelData != NULL && (nBPP == 3 || nBPP == 1)) {
-					if (pTransformToSRGB != NULL && nBPP == 3) {
-						// TurboJPEG returns BGR rows padded to 4 bytes, converted in place
-						ICCProfileTransform::DoTransform(pTransformToSRGB, pPixelData, pPixelData, nWidth, nHeight, Helpers::DoPadding(nWidth * 3, 4));
-					}
 					request->Image = new CJPEGImage(nWidth, nHeight, pPixelData, 
 						Helpers::FindEXIFBlock(pBuffer, nFileSize), nBPP, 
 						Helpers::CalculateJPEGFileHash(pBuffer, nFileSize), IF_JPEG, false, 0, 1, 0);
@@ -846,7 +844,6 @@ void CImageLoadThread::ProcessReadJPEGRequest(CRequest * request) {
 					ProcessReadGDIPlusRequest(request);
 				}
 			}
-			ICCProfileTransform::DeleteTransform(pTransformToSRGB);
 			ICCProfileTransform::DeleteTransform(pTransformCMYK);
 		}
 	} catch (...) {
