@@ -1,5 +1,18 @@
 JPEGView Changelog
 ******************
+[26.11.4] 2026-11-22
+New features:
+- Wide gamut CMYK and Lab images: with display color management on, CMYK JPEG and TIFF images and Lab PSDs are
+  converted to a wide gamut working space (Rec. 2020 primaries) instead of sRGB, so their colors outside of sRGB
+  are no longer clipped on wide gamut monitors. Saving, copying and printing still use sRGB.
+- HEIF/HEIC and AVIF images without ICC profile use their nclx color information (e.g. Display P3) instead of being
+  shown as sRGB. HDR transfer functions (PQ, HLG) are not handled.
+- When the Microsoft Visual C++ Redistributable needed for JPEG XL, HEIF/HEIC and AVIF is missing, the error message
+  shows its download link. HowToInstall.txt and README.md describe this requirement.
+Bugs fixed:
+- Without display color management, JPEGs with an embedded non-sRGB RGB profile were converted to sRGB twice.
+- Crash when an image with a very long path (long path support) could not be loaded.
+
 [26.11.3] 2026-11-22
 Build:
 - GitHub Actions: updated all actions to versions that run on Node.js 24 (Node.js 20 is deprecated on GitHub).
