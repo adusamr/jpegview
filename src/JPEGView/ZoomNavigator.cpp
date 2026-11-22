@@ -69,7 +69,7 @@ CSize CZoomNavigator::GetThumbSize(int width) {
 void CZoomNavigator::PaintZoomNavigator(CJPEGImage* pImage, const CRectF& visRect, const CRect& navigatorRect,
 										const CPoint& mousePt,
 										const CImageProcessingParams& processingParams,
-										EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CPaintDC& dc) {
+										EProcessingFlags eFlags, double dRotation, const CTrapezoid* pTrapezoid, CDC& dc) {
 	
 	void* pDIBData = (fabs(dRotation) > 1e-3) ?
 		pImage->GetThumbnailDIBRotated(navigatorRect.Size(), processingParams, eFlags, dRotation) :

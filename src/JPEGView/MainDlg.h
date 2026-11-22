@@ -416,6 +416,15 @@ private:
 	typedef HRESULT (WINAPI *MyDwmFlushType)(void);
 	MyDwmFlushType m_DynDwmFlush;
 
+	// Offscreen back buffer: OnPaint renders the complete frame here and then copies it to the
+	// window with a single BitBlt, so DWM never composes a half painted frame (tearing).
+	// The bitmap is declared before the DC so that the DC is destroyed first.
+	CBitmap m_backBufferBitmap;
+	CDC m_backBufferDC;
+	HBITMAP m_hOldBackBufferBitmap;
+	CSize m_backBufferSize;
+	CDC& PrepareBackBuffer(HDC hCompatibleDC, CSize size);
+
 	bool m_bIsRunningUnderWine;
 
 	WINDOWPLACEMENT m_storedWindowPlacement2;	// position for windowed mode

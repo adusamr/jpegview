@@ -303,6 +303,9 @@ CMainDlg::CMainDlg(bool bForceFullScreen) {
 	m_bDWMenabled = FALSE;
 	m_DynDwmFlush = 0;
 
+	m_hOldBackBufferBitmap = NULL;
+	m_backBufferSize = CSize(0, 0);
+
 	m_bIsRunningUnderWine = Helpers::isRunningUnderWine();
 	
 	m_storedWindowPlacement2.length = sizeof(WINDOWPLACEMENT);
@@ -559,16 +562,19 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		}
 	}
 
-/*GF*/	if (m_DynDwmFlush)
-/*GF*/		m_DynDwmFlush();	// Wait for vsync
-
-	CPaintDC dc(m_hWnd);
+	CPaintDC paintDC(m_hWnd);
 	m_dRealizedZoom = 1.0;
 
 	// Make sure the display color transform matches the monitor the window is on
 	CDisplayColorProfile::Update(m_hWnd);
 
 	this->GetClientRect(&m_clientRect);
+
+	// The whole frame is rendered into an offscreen back buffer and copied to the screen with a
+	// single BitBlt at the end. Painting directly to the window in many steps lets DWM compose
+	// a half painted frame, which is visible as tearing when changing images.
+	CDC& dc = PrepareBackBuffer(paintDC, m_clientRect.Size());
+	int nSavedBackBufferDC = dc.SaveDC();
 	CRect imageProcessingArea = m_pImageProcPanelCtl->PanelRect();
 	CRectF visRectZoomNavigator(0.0f, 0.0f, 1.0f, 1.0f);
 	CBrush backBrush;
@@ -582,7 +588,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	std::list<CRect> excludedClippingRects;
 
 	// Panels are handled over memory DCs to eliminate flickering
-	CPaintMemDCMgr memDCMgr(dc);
+	CPaintMemDCMgr memDCMgr(dc, CRect(paintDC.m_ps.rcPaint));
 
 	if (m_pCurrentImage == NULL) {
 		m_pPanelMgr->OnPrePaint(dc);
@@ -704,7 +710,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 			}
 
     		HFONT hFont = CreateFont(25,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,ANSI_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,FF_DONTCARE,TEXT("CONSOLAS"));
-    		dc.SelectFont(hFont);
+    		HFONT hOldFont = dc.SelectFont(hFont);
     		dc.SetBkColor(RGB(0,0,0));
     		dc.SetTextColor(RGB(255,255,255));
     
@@ -715,6 +721,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
     		//dc.SetBkMode(TRANSPARENT);	// OPAQUE / TRANSPARENT
     		//HelpersGUI::DrawTextBordered(dc, infoText, &m_clientRect, DT_LEFT | DT_EXTERNALLEADING | DT_WORDBREAK | DT_NOPREFIX);
     		
+    		dc.SelectFont(hOldFont);	// a font still selected into a DC cannot be deleted
     		DeleteObject(hFont);
     	}
 	}
@@ -769,9 +776,45 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 	m_pCropCtl->OnPaint(dc);
 	m_pPanelMgr->OnPostPaint(dc);
 
+	// Reset the clip region, selected objects etc. so the next paint starts from a clean DC
+	dc.RestoreDC(nSavedBackBufferDC);
+
+	// Wait for vsync only now that the (potentially slow) image processing and painting is done,
+	// then copy the finished frame to the screen in one operation.
+	// The copy is clipped to the update region by the paint DC.
+	if (m_DynDwmFlush)
+		m_DynDwmFlush();
+	paintDC.BitBlt(0, 0, m_clientRect.Width(), m_clientRect.Height(), dc, 0, 0, SRCCOPY);
+
 	SetCursorForMoveSection();
 
 	return 0;
+}
+
+CDC& CMainDlg::PrepareBackBuffer(HDC hCompatibleDC, CSize size) {
+	size.cx = max(1, size.cx);
+	size.cy = max(1, size.cy);
+	if (m_backBufferDC.m_hDC == NULL) {
+		m_backBufferDC.CreateCompatibleDC(hCompatibleDC);
+	}
+	// Only reallocate when the window size changes, the buffer is reused for all other paints.
+	// Display format changes (e.g. color depth) are not tracked, compatible bitmaps are converted by GDI.
+	if (m_backBufferBitmap.m_hBitmap == NULL || size != m_backBufferSize) {
+		if (m_hOldBackBufferBitmap != NULL) {
+			m_backBufferDC.SelectBitmap(m_hOldBackBufferBitmap);
+		}
+		if (m_backBufferBitmap.m_hBitmap != NULL) {
+			m_backBufferBitmap.DeleteObject();
+		}
+		m_backBufferBitmap.CreateCompatibleBitmap(hCompatibleDC, size.cx, size.cy);
+		m_hOldBackBufferBitmap = m_backBufferDC.SelectBitmap(m_backBufferBitmap);
+		m_backBufferSize = size;
+		// A new bitmap has undefined content, start with the background color
+		CBrush backBrush;
+		backBrush.CreateSolidBrush(CSettingsProvider::This().ColorBackground());
+		m_backBufferDC.FillRect(CRect(CPoint(0, 0), size), backBrush);
+	}
+	return m_backBufferDC;
 }
 
 void CMainDlg::PaintToDC(CDC& dc) {

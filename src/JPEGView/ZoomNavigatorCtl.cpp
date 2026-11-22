@@ -113,7 +113,7 @@ bool CZoomNavigatorCtl::OnMouseMove(int nOldX, int nOldY) {
 	return false;
 }
 
-void CZoomNavigatorCtl::OnPaint(CPaintDC& paintDC, CRectF visRectZoomNavigator, const CImageProcessingParams* pImageProcParams, 
+void CZoomNavigatorCtl::OnPaint(CDC& paintDC, CRectF visRectZoomNavigator, const CImageProcessingParams* pImageProcParams, 
 								EProcessingFlags eProcessingFlags, double dRotationAngle, const CTrapezoid* pTrapezoid) {
 	if (IsVisible()) {
 		m_zoomNavigator.PaintZoomNavigator(m_pMainDlg->GetCurrentImage(), visRectZoomNavigator,
