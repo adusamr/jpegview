@@ -1,5 +1,10 @@
 JPEGView Changelog
 ******************
+[26.11.2] 2026-11-22
+Bugs fixed:
+- No more tearing when changing images: the window is painted through an offscreen buffer and shown in one step,
+  in sync with the screen refresh.
+
 [26.11.1] 2026-11-22
 New features:
 - Merged all changes of the JPEGView_L fork (https://github.com/KrokusPokus/JPEGView_L) up to its version 1.4.0.12:
