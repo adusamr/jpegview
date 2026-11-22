@@ -100,6 +100,10 @@ The installer replaces an installed official (sylikc) JPEGView. The MSI is not c
 ## System Requirements
 
 * Windows 7 SP1 or later, 64-bit only. 32-bit builds are no longer made, as the JPEGView_L code does not support them.
+* [Microsoft Visual C++ Redistributable (x64)](https://aka.ms/vs/17/release/vc_redist.x64.exe) for JPEG XL, HEIF/HEIC, AVIF and modern camera RAW files (LibRaw).
+  It is not included in the portable archive or the installer: the GPL license of JPEGView does not allow distributing it together with the program
+  (see [extras/third_party/README.md](extras/third_party/README.md)). Many systems already have it; if not, JPEGView shows an error with the download link when opening these files.
+  All other formats work without it, and with the default settings camera RAW files then use the built-in decoder, which supports fewer cameras.
 
 ## What's New
 

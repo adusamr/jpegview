@@ -107,6 +107,8 @@ because JPEGView is GPL-licensed, [Is dynamically linking my program with the Vi
 > You may not distribute these libraries in compiled DLL form with the program
 
 Most users should already have VC++ Runtime installed, but if not, users will have to download it themselves for JPEG XL support.
+The same applies to HEIF/HEIC and AVIF (libheif, libde265, libavif, dav1d) and LibRaw. JPEGView shows the download link in its error message,
+and HowToInstall.txt and README.md (System Requirements) describe it.
 
 ## libpng-apng.src-patch
 

@@ -10,6 +10,13 @@ JPEGView can be installed by simply extracting the directory to an arbitrary loc
 JPEGView_X.Y.Z.zip\JPEGView64\  --> C:\Program Files\JPEGView64\
 Alternatively, use the installer JPEGView64_en-us_X.Y.Z.msi.
 
+3. Install the Microsoft Visual C++ Redistributable (if not already installed)
+JPEG XL, HEIF/HEIC, AVIF and modern camera RAW files (LibRaw) need the Microsoft Visual C++ Redistributable (x64).
+It is not included with JPEGView, as the GPL license of JPEGView does not allow to distribute it together with the program.
+Many systems already have it. If not, JPEGView shows an error when opening these files. Download and install it from Microsoft:
+https://aka.ms/vs/17/release/vc_redist.x64.exe
+All other formats work without it. Without it, camera RAW files are read with the built-in decoder (with the default settings), which supports fewer cameras.
+
 ******************************************************************************
 *****************************   Uninstallation   *****************************
 ******************************************************************************
