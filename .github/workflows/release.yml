@@ -36,7 +36,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Check that the tag matches the program version
       shell: pwsh
@@ -54,7 +54,7 @@ jobs:
         }
 
     - name: Setup msbuild
-      uses: microsoft/setup-msbuild@v2
+      uses: microsoft/setup-msbuild@v3
       with:
         vs-version: '[17.0,18.0)'
         msbuild-architecture: ${{ matrix.platform-arch }}
@@ -80,7 +80,7 @@ jobs:
         Copy-Item "src/JPEGView.Setup/bin/${{ matrix.out-arch }}/Release/en-us/JPEGView.Setup.msi" "out/JPEGView${{ matrix.bits }}_en-us_$ver.msi"
         Get-ChildItem out | Format-Table Name, Length
 
-    - uses: actions/upload-artifact@v4
+    - uses: actions/upload-artifact@v7
       with:
         name: release-${{ matrix.bits }}
         path: out
@@ -91,9 +91,9 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
-    - uses: actions/download-artifact@v4
+    - uses: actions/download-artifact@v8
       with:
         pattern: release-*
         path: artifacts
