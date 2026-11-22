@@ -1,5 +1,10 @@
 JPEGView Changelog
 ******************
+[26.11.3] 2026-11-22
+Build:
+- GitHub Actions: updated all actions to versions that run on Node.js 24 (Node.js 20 is deprecated on GitHub).
+  NASM for the dependency builds is installed with Chocolatey.
+
 [26.11.2] 2026-11-22
 Bugs fixed:
 - No more tearing when changing images: the window is painted through an offscreen buffer and shown in one step,
