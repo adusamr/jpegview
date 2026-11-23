@@ -644,6 +644,12 @@ void CImageLoadThread::ProcessRequest(CRequestBase& request) {
 				profile = m_animationProfile;
 			}
 		}
+		// Resampling works in linear light using the sRGB tone curve: pixels kept in the color space of a profile with another
+		// tone curve are re-encoded with the sRGB curve, keeping the primaries, and the image gets the matching profile
+		if (profile != NULL && rq.Image->OriginalPixels() != NULL) {
+			profile = ICCProfileTransform::ReencodeToSRGBToneCurve(profile, rq.Image->OriginalPixels(),
+				rq.Image->OrigWidth(), rq.Image->OrigHeight(), rq.Image->OriginalChannels());
+		}
 		rq.Image->SetICCProfile(profile);
 		ICCProfileTransform::ResetCapturedProfile();
 		rq.Image->SetLoadTickCount(Helpers::GetExactTickCount() - dStartTime); 

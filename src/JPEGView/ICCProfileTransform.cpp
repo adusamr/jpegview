@@ -4,6 +4,8 @@
 #include "SettingsProvider.h"
 #include "ProcessingThreadPool.h"
 #include <vector>
+#include <mutex>
+#include <math.h>
 
 
 #ifndef WINXP
@@ -376,6 +378,137 @@ namespace {
 		}();
 		return s_profile;
 	}
+
+	// True if the tone curve gives the same linear values as the sRGB tone curve for all 8 bit input values, within
+	// one step of the 12 bit linear values the resampling code works with (see LookupTables.h)
+	bool IsSRGBToneCurve(const cmsToneCurve* curve) {
+		for (int i = 0; i < 256; i++) {
+			double v = i / 255.0;
+			double dSRGB = (v <= 0.04045) ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4);
+			if (fabs(cmsEvalToneCurveFloat(curve, (cmsFloat32Number)v) - dSRGB) > 1.0 / 4095) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	// True if the profile is a matrix/TRC RGB profile (colorants and one tone curve per channel, no lookup tables)
+	// whose tone curves differ from the sRGB tone curve (see ICCProfileTransform::ReencodeToSRGBToneCurve())
+	bool NeedsSRGBToneCurveVariant(cmsHPROFILE hProfile) {
+		if (cmsGetColorSpace(hProfile) != cmsSigRgbData || !cmsIsMatrixShaper(hProfile)) {
+			return false;
+		}
+		// lcms uses the lookup tables instead of the matrix if the profile has both, they may describe other colors
+		if (cmsIsTag(hProfile, cmsSigAToB0Tag) || cmsIsTag(hProfile, cmsSigAToB1Tag) || cmsIsTag(hProfile, cmsSigAToB2Tag) ||
+			cmsIsTag(hProfile, cmsSigDToB0Tag) || cmsIsTag(hProfile, cmsSigDToB1Tag) || cmsIsTag(hProfile, cmsSigDToB2Tag)) {
+			return false;
+		}
+		const cmsTagSignature trcs[3] = { cmsSigRedTRCTag, cmsSigGreenTRCTag, cmsSigBlueTRCTag };
+		for (int i = 0; i < 3; i++) {
+			const cmsToneCurve* curve = (const cmsToneCurve*)cmsReadTag(hProfile, trcs[i]);
+			if (curve == NULL) {
+				return false;
+			}
+			if (!IsSRGBToneCurve(curve)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// Creates a matrix/TRC profile with the colorants, white point, chromatic adaptation, version and device class of
+	// the given matrix/TRC profile, but with the sRGB tone curve. So it has the same gamut, only the encoding differs.
+	// Returns it serialized as ICC profile, empty on failure.
+	std::vector<unsigned char> CreateSRGBToneCurveVariant(cmsHPROFILE hProfile) {
+		std::vector<unsigned char> data;
+		cmsToneCurve* curve = CreateSRGBToneCurve();
+		cmsHPROFILE hNew = cmsCreateProfilePlaceholder(NULL);
+		if (curve != NULL && hNew != NULL) {
+			cmsSetProfileVersion(hNew, cmsGetProfileVersion(hProfile));
+			cmsSetDeviceClass(hNew, cmsGetDeviceClass(hProfile));
+			cmsSetColorSpace(hNew, cmsSigRgbData);
+			cmsSetPCS(hNew, cmsSigXYZData);
+			cmsSetHeaderRenderingIntent(hNew, INTENT_RELATIVE_COLORIMETRIC);
+			bool bOk = true;
+			const cmsTagSignature colorants[3] = { cmsSigRedColorantTag, cmsSigGreenColorantTag, cmsSigBlueColorantTag };
+			const cmsTagSignature trcs[3] = { cmsSigRedTRCTag, cmsSigGreenTRCTag, cmsSigBlueTRCTag };
+			for (int i = 0; i < 3 && bOk; i++) {
+				void* pColorant = cmsReadTag(hProfile, colorants[i]);
+				bOk = pColorant != NULL && cmsWriteTag(hNew, colorants[i], pColorant) && cmsWriteTag(hNew, trcs[i], curve);
+			}
+			void* pWhitePoint = cmsReadTag(hProfile, cmsSigMediaWhitePointTag);
+			if (bOk) {
+				bOk = cmsWriteTag(hNew, cmsSigMediaWhitePointTag, (pWhitePoint != NULL) ? pWhitePoint : (void*)cmsD50_XYZ());
+			}
+			void* pAdaptation = cmsReadTag(hProfile, cmsSigChromaticAdaptationTag);
+			if (bOk && pAdaptation != NULL) {
+				bOk = cmsWriteTag(hNew, cmsSigChromaticAdaptationTag, pAdaptation);
+			}
+			if (bOk) {
+				CString sDescription = GetProfileDisplayName(hProfile, CString());
+				sDescription += _T(" (sRGB tone curve)");
+				cmsMLU* pDescription = cmsMLUalloc(NULL, 1);
+				if (pDescription != NULL) {
+					cmsMLUsetWide(pDescription, "en", "US", CT2CW(sDescription));
+					cmsWriteTag(hNew, cmsSigProfileDescriptionTag, pDescription);
+					cmsMLUfree(pDescription);
+				}
+				cmsUInt32Number nSize = 0;
+				if (cmsSaveProfileToMem(hNew, NULL, &nSize) && nSize > 128) {
+					data.resize(nSize);
+					if (!cmsSaveProfileToMem(hNew, data.data(), &nSize)) {
+						data.clear();
+					}
+				}
+			}
+		}
+		if (curve != NULL) cmsFreeToneCurve(curve);
+		if (hNew != NULL) cmsCloseProfile(hNew);
+		return data;
+	}
+
+	// Cache for GetSRGBToneCurveVariant(), so that the frames of an animation and images with the same profile share
+	// the variant (and its display transform). The last entry is the most recently used one.
+	std::mutex s_variantCacheMutex;
+	std::vector<std::pair<ICCProfilePtr, ICCProfilePtr>> s_variantCache; // embedded profile -> variant, empty if not needed
+	const size_t VARIANT_CACHE_SIZE = 8;
+
+	// Gets the sRGB tone curve variant of the embedded profile (see CreateSRGBToneCurveVariant()),
+	// or an empty pointer if the profile does not need one or it cannot be created
+	ICCProfilePtr GetSRGBToneCurveVariant(const ICCProfilePtr& profile) {
+		{
+			std::lock_guard<std::mutex> lock(s_variantCacheMutex);
+			for (size_t i = 0; i < s_variantCache.size(); i++) {
+				if (s_variantCache[i].first == profile || *s_variantCache[i].first == *profile) {
+					std::pair<ICCProfilePtr, ICCProfilePtr> entry = s_variantCache[i];
+					s_variantCache.erase(s_variantCache.begin() + i);
+					s_variantCache.push_back(entry);
+					return entry.second;
+				}
+			}
+		}
+		ICCProfilePtr variant;
+		try {
+			cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+			if (hProfile != NULL) {
+				if (NeedsSRGBToneCurveVariant(hProfile)) {
+					std::vector<unsigned char> data = CreateSRGBToneCurveVariant(hProfile);
+					if (!data.empty()) {
+						variant = std::make_shared<const std::vector<unsigned char>>(std::move(data));
+					}
+				}
+				cmsCloseProfile(hProfile);
+			}
+		} catch (...) {
+			variant.reset();
+		}
+		std::lock_guard<std::mutex> lock(s_variantCacheMutex);
+		if (s_variantCache.size() >= VARIANT_CACHE_SIZE) {
+			s_variantCache.erase(s_variantCache.begin());
+		}
+		s_variantCache.push_back(std::make_pair(profile, variant));
+		return variant;
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////////
@@ -498,6 +631,38 @@ bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& profile, void* pixe
 		if (hOut != NULL) cmsCloseProfile(hOut);
 	} catch (...) {}
 	return bOk;
+}
+
+ICCProfilePtr ICCProfileTransform::ReencodeToSRGBToneCurve(const ICCProfilePtr& profile, void* pixels, int width, int height, int bytesPerPixel) {
+	if (profile == NULL || profile->empty() || pixels == NULL || width <= 0 || height <= 0 || (bytesPerPixel != 3 && bytesPerPixel != 4)) {
+		return profile;
+	}
+	ICCProfilePtr variant = GetSRGBToneCurveVariant(profile);
+	if (variant == NULL) {
+		return profile; // sRGB tone curve already, lookup table profile, or lcms2 failed: pixels stay as they are
+	}
+	bool bOk = false;
+	try {
+		cmsHPROFILE hIn = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+		cmsHPROFILE hOut = cmsOpenProfileFromMem(variant->data(), (cmsUInt32Number)variant->size());
+		if (hIn != NULL && hOut != NULL) {
+			cmsUInt32Number format = (bytesPerPixel == 4) ? TYPE_BGRA_8 : TYPE_BGR_8;
+			// Same colorants and white point: only the tone curves are exchanged, no gamut mapping happens
+			cmsUInt32Number flags = (bytesPerPixel == 4) ? cmsFLAGS_COPY_ALPHA : 0;
+			cmsHTRANSFORM transform = cmsCreateTransform(hIn, format, hOut, format, INTENT_RELATIVE_COLORIMETRIC, flags);
+			if (transform != NULL) {
+				cmsUInt32Number stride = (bytesPerPixel == 4) ? width * 4 : Helpers::DoPadding(width * 3, 4);
+				cmsDoTransformLineStride(transform, pixels, pixels, width, height, stride, stride, stride * height, stride * height);
+				cmsDeleteTransform(transform);
+				bOk = true;
+			}
+		}
+		if (hIn != NULL) cmsCloseProfile(hIn);
+		if (hOut != NULL) cmsCloseProfile(hOut);
+	} catch (...) {
+		bOk = false;
+	}
+	return bOk ? variant : profile;
 }
 
 CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& profile) {
@@ -889,6 +1054,7 @@ bool ICCProfileTransform::IsRGBProfile(const void* /* profile */, unsigned int /
 bool ICCProfileTransform::IsSRGBProfile(const void* /* profile */, unsigned int /* size */) { return false; }
 bool ICCProfileTransform::IsAvailable() { return false; }
 bool ICCProfileTransform::ConvertToSRGB(const ICCProfilePtr& /* profile */, void* /* pixels */, int /* width */, int /* height */, int /* bytesPerPixel */) { return false; }
+ICCProfilePtr ICCProfileTransform::ReencodeToSRGBToneCurve(const ICCProfilePtr& profile, void* /* pixels */, int /* width */, int /* height */, int /* bytesPerPixel */) { return profile; }
 CString ICCProfileTransform::GetProfileName(const ICCProfilePtr& /* profile */) { return CString(); }
 bool ICCProfileTransform::IsCMYKProfile(const void* /* profile */, unsigned int /* size */) { return false; }
 void* ICCProfileTransform::CreateWideGamutTransform(const void* /* profile */, unsigned int /* size */, PixelFormat /* format */) { return NULL; }

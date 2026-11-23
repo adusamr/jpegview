@@ -95,6 +95,16 @@ public:
 	// Does nothing and returns false if profile is empty.
 	static bool ConvertToSRGB(const ICCProfilePtr& profile, void* pixels, int width, int height, int bytesPerPixel);
 
+	// The resampling code converts the pixels to linear light with the sRGB tone curve, which is only correct for pixels
+	// encoded with it. This converts pixels kept in the color space of an embedded profile (see CaptureProfile()) in place
+	// to a profile with the same colorants and white point, but the sRGB tone curve - so the gamut stays the same and
+	// no colors are lost, only the encoding changes (e.g. Adobe RGB with gamma 2.2, ProPhoto RGB with gamma 1.8, linear).
+	// Only done for matrix/TRC profiles whose tone curves differ from the sRGB curve. Profiles with lookup tables are left
+	// as they are, as their tone curve cannot be separated from the color conversion.
+	// Returns the profile of the pixels afterwards: the new profile, or the given profile if nothing was done.
+	// bytesPerPixel is 3 (BGR, rows padded to 4 bytes) or 4 (BGRA).
+	static ICCProfilePtr ReencodeToSRGBToneCurve(const ICCProfilePtr& profile, void* pixels, int width, int height, int bytesPerPixel);
+
 	// Name (description) of the profile, empty if none
 	static CString GetProfileName(const ICCProfilePtr& profile);
 
