@@ -1,6 +1,6 @@
 JPEGView Changelog
 ******************
-[Unreleased] TBD
+[26.11.5] 2026-11-23
 Bugs fixed:
 - Zooming in and out of images with an embedded profile whose tone curve is not the sRGB curve (e.g. Adobe RGB,
   ProPhoto RGB, linear profiles) now really happens in linear light when display color management is on. The pixels
