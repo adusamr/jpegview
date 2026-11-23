@@ -80,6 +80,7 @@ CSettingsProvider::CSettingsProvider(void) {
 
 	// Read if the user INI file shall be used
 	m_bUserINIExists = false;
+	m_bBookModePageHeightChanged = false;
 	m_pIniGlobalSectionBuffer = NULL;
 	m_pIniUserSectionBuffer = NULL;
 	m_pGlobalKeys = NULL;
@@ -536,11 +537,18 @@ void CSettingsProvider::ReadWriteableINISettings() {
 }
 
 void CSettingsProvider::SaveCustomSettings() {
+	// Only persist the Book Mode page height if the user changed it by zooming in Book Mode.
+	// Writing unconditionally would create/modify the user INI on every exit.
+	if (!m_bBookModePageHeightChanged) {
+		return;
+	}
+
 	MakeSureUserINIExists();
 
 	WriteInt(_T("BookModePageHeight"), m_nBookModePageHeight);
 
 	m_bUserINIExists = true;
+	m_bBookModePageHeightChanged = false;
 }
 
 void CSettingsProvider::SaveSettings(const CImageProcessingParams& procParams, 

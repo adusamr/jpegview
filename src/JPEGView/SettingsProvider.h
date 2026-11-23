@@ -198,7 +198,12 @@ public:
 /*GF*/	bool TitleBarUseFileIcon() { return m_bTitleBarUseFileIcon; }
 /*GF*/	int CacheRange() { return m_nCacheRange; }
 /*GF*/	Helpers::ETransparencyMode TransparencyMode() {return m_eTransparencyMode; }
-/*GF*/	void SetBookModePageHeight(int nBookModePageHeight) { m_nBookModePageHeight = nBookModePageHeight; }
+/*GF*/	void SetBookModePageHeight(int nBookModePageHeight) {
+		if (nBookModePageHeight != m_nBookModePageHeight) {
+			m_nBookModePageHeight = nBookModePageHeight;
+			m_bBookModePageHeightChanged = true;
+		}
+	}
 /*GF*/	void SetUseEmbeddedColorProfiles(int bUseEmbeddedColorProfiles) { m_bUseEmbeddedColorProfiles = bUseEmbeddedColorProfiles; }
 /*GF*/	void SaveCustomSettings();
 
@@ -362,6 +367,7 @@ private:
 	CSettingsProvider(void);
 
 /*GF*/	int m_nBookModePageHeight;
+	bool m_bBookModePageHeightChanged;
 /*GF*/	bool m_bBookModeLaunchFullscreen;
 /*GF*/	bool m_bSmoothPanning;
 /*GF*/	bool m_bSmartPanningKeys;
