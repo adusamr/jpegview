@@ -1,6 +1,6 @@
 JPEGView Changelog
 ******************
-[Unreleased] TBD
+[26.11.6] 2026-11-23
 Bugs fixed:
 - JPEGView no longer writes BookModePageHeight to the user INI file (creating that file if needed) every time it is
   closed. The Book Mode page height is only saved when it was changed by zooming in Book Mode.
