@@ -2,9 +2,7 @@
 
 This is a fork of [sylikc/jpegview](https://github.com/sylikc/jpegview) that adds **display color profile support**.
 
-It also includes all changes from [KrokusPokus/JPEGView_L](https://github.com/KrokusPokus/JPEGView_L) (linear-light resampling, CBZ/CB7 support, smooth panning and more, see below).
-
-It also includes the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there.
+It also includes all changes from [KrokusPokus/JPEGView_L](https://github.com/KrokusPokus/JPEGView_L) (linear-light resampling, CBZ/CB7 support, smooth panning and more) and the changes made in sylikc/jpegview after its last release (1.3.46), which were not released there, see below.
 
 ## Display color profiles
 
@@ -17,7 +15,7 @@ Display color profile support and embedded color profile support are enabled by 
 
 Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
 
-## Changes from JPEGView_L 
+## Changes from JPEGView_L
 
 * Up- and downsamples images in linear space. This is beneficial for lineart, where lines and edges otherwise come out too dark and screentones can show moiree patterns that don't exist in the actual image. This is of course also a problem with photographs, where image detail of the zoomed down on screen image will come out too dark, and while professional image editing tools like Photoshop and GIMP have been using linear light scaling for a long time, very few image viewers exist that actually give correct output, sticking to a incorrect but faster method of calculation instead. JPEGView_L uses multi-threading and SSE/AVX2 extensions to maintain a high resampling speed (~70% of IrfanView) while not cutting any corners quality-wise.
 More information: http://www.ericbrasseur.org/gamma.html
