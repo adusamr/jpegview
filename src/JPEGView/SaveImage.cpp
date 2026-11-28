@@ -360,10 +360,11 @@ bool CSaveImage::SaveImage(LPCTSTR sFileName, CJPEGImage * pImage, const CImageP
 
 	if (bFullSize) {
 		imageSize = pImage->OrigSize();
-		pDIB32bpp = pImage->GetDIB(imageSize, imageSize, CPoint(0, 0), procParams, eFlags);
+		pDIB32bpp = pImage->GetDIB(imageSize, imageSize, CPoint(0, 0), procParams, SetProcessingFlag(eFlags, PFLAG_DisplayRendering, false));
 	} else {
 		imageSize = CSize(pImage->DIBWidth(), pImage->DIBHeight());
-		pDIB32bpp = pImage->DIBPixelsLastProcessed(true);
+		// not the DIB converted to the display (PreciseDisplayColors=true), saved images are sRGB
+		pDIB32bpp = pImage->DIBPixelsLastProcessedForExport();
 	}
 
 	if (pDIB32bpp == NULL) {

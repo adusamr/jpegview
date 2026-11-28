@@ -10,6 +10,7 @@
 #include <vector>
 #include <immintrin.h>
 #include "LookupTables.h"	// needed for LinRGB12_sRGB8[4096]
+#include "ICCProfileTransform.h" // CDisplayRenderTransform
 
 // This macro allows for aligned definition of a 16 byte value with initialization of the 8 components
 // to a single value
@@ -29,15 +30,16 @@ static TCHAR s_TimingInfo[256];
 
 static void* SampleDown_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 	CSize sourceSize, const void* pIJLPixels, int nChannels, double dSharpen,
-	EFilterType eFilter, bool bSSE, uint8* pTarget);
+	EFilterType eFilter, bool bSSE, uint8* pTarget, const CDisplayRenderTransform* pDisplayTransform);
 
 // AVX2: resamples one slice of the target image (down- and upsampling), see the implementation
 static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget);
+	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget,
+	const CDisplayRenderTransform* pDisplayTransform);
 
 static void* SampleUp_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 	CSize sourceSize, const void* pIJLPixels, int nChannels, bool bSSE,
-	uint8* pTarget);
+	uint8* pTarget, const CDisplayRenderTransform* pDisplayTransform);
 
 static void* ApplyLDC32bpp_Core(CSize fullTargetSize, CPoint fullTargetOffset, CSize dibSize,
 	CSize ldcMapSize, const void* pDIBPixels, const int32* pSatLUTs, const uint8* pLUT, const uint8* pLDCMap,
@@ -72,12 +74,14 @@ class CRequestUpDownSampling : public CProcessingRequest {
 public:
 	CRequestUpDownSampling(const void* pSourcePixels, CSize sourceSize, void* pTargetPixels,
 		CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-		int nChannels, double dSharpen, EFilterType eFilter, CBasicProcessing::SIMDArchitecture simd)
+		int nChannels, double dSharpen, EFilterType eFilter, CBasicProcessing::SIMDArchitecture simd,
+		const CDisplayRenderTransform* pDisplayTransform)
 		: CProcessingRequest(pSourcePixels, sourceSize, pTargetPixels, fullTargetSize, fullTargetOffset, clippedTargetSize) {
 		Channels = nChannels;
 		Sharpen = dSharpen;
 		Filter = eFilter;
 		SIMD = simd;
+		DisplayTransform = pDisplayTransform;
 		//StripPadding = (simd == CBasicProcessing::AVX2) ? 16 : 8; // important to set for AVX
 		// For linear processing, we use double the data size, so can process only half as many pixels at once, so one strip can only be half the height of vanilla JpegView.
 		// (All slices must have a height dividable by 'StripPadding', except the last one)
@@ -96,7 +100,7 @@ public:
 			CSize(ClippedTargetSize.cx, sizeY),
 			SourceSize, SourcePixels,
 			Channels, Sharpen, Filter,
-			(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY);
+			(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY, DisplayTransform);
 	}
 
 	// SSE/MMX only
@@ -107,7 +111,7 @@ public:
 				CSize(ClippedTargetSize.cx, sizeY),
 				SourceSize, SourcePixels,
 				Channels, SIMD == CBasicProcessing::SSE,
-				(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY);
+				(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY, DisplayTransform);
 		} else
 			return NULL != SampleDown_HQ_MMX_SSE_Core(FullTargetSize,
 				CPoint(FullTargetOffset.x, FullTargetOffset.y + offsetY),
@@ -115,13 +119,14 @@ public:
 				SourceSize, SourcePixels,
 				Channels, Sharpen,
 				Filter, SIMD == CBasicProcessing::SSE,
-				(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY);
+				(uint8*)TargetPixels + (size_t)ClippedTargetSize.cx * 4 * offsetY, DisplayTransform);
 	}
 
 	int Channels;
 	double Sharpen;
 	EFilterType Filter;
 	CBasicProcessing::SIMDArchitecture SIMD;
+	const CDisplayRenderTransform* DisplayTransform; // NULL: output encoded with the sRGB tone curve
 };
 
 class CRequestLDC : public CProcessingRequest {
@@ -2040,6 +2045,37 @@ static void* RotateToDIB(const CXMMImage* pSourceImg, int simdPixelsPerRegister,
 	return pTarget;
 }
 
+// Same as RotateToDIB() with simdPixelsPerRegister = 4, but the filtered linear light values (not rounded) are converted
+// with the display transform (PreciseDisplayColors=true) instead of the LinRGB12_sRGB8 table.
+// Line j of the source holds target column j in block layout (4 x channel 0, 4 x channel 1, 4 x channel 2, next 4 pixels).
+static void* RotateToDIBDisplay(const CXMMImage* pSourceImg, const CDisplayRenderTransform* pDisplayTransform, uint8* pTarget) {
+	const int nTargetWidth = pSourceImg->GetHeight();
+	const int nTargetLines = pSourceImg->GetWidth(); // padded to 4 lines, as written by RotateToDIB()
+	const size_t nSourceLineLen = (size_t)Helpers::DoPadding(pSourceImg->GetWidth(), 4) * 3;
+	const float* pSource = (const float*)pSourceImg->AlignedPtr();
+	if (pTarget == NULL) {
+		pTarget = new(std::nothrow) uint8[(size_t)nTargetWidth * 4 * Helpers::DoPadding(nTargetLines, 4)];
+		if (pTarget == NULL) return NULL;
+	}
+	float* pLine = new(std::nothrow) float[(size_t)nTargetWidth * 3];
+	if (pLine == NULL) return NULL;
+	for (int y = 0; y < nTargetLines; y++) {
+		const float* pBlock = pSource + (y >> 2) * 12 + (y & 3);
+		float* pDst = pLine;
+		for (int x = 0; x < nTargetWidth; x++) {
+			const float* pPixel = pBlock + x * nSourceLineLen;
+			for (int c = 0; c < 3; c++) {
+				float fValue = pPixel[c * 4];
+				fValue = (fValue < 0.0f) ? 0.0f : (fValue > 4095.0f) ? 4095.0f : fValue;
+				*pDst++ = fValue * (1.0f / 4095.0f);
+			}
+		}
+		pDisplayTransform->Convert(pLine, pTarget + (size_t)y * nTargetWidth * 4, nTargetWidth);
+	}
+	delete[] pLine;
+	return pTarget;
+}
+
 /////////////////////////////////////////////////////////////////////////////////////////////
 // High quality filtering (SSE implementation)
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -2479,7 +2515,7 @@ FilterKernelLoop:
 
 void* SampleDown_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen,
-	EFilterType eFilter, bool bSSE, uint8* pTarget) {
+	EFilterType eFilter, bool bSSE, uint8* pTarget, const CDisplayRenderTransform* pDisplayTransform) {
 
 	CAutoXMMFilter filterY(sourceSize.cy, fullTargetSize.cy, dSharpen, eFilter);
 	const XMMFilterKernelBlock& kernelsY = filterY.Kernels();
@@ -2524,12 +2560,13 @@ void* SampleDown_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, 
 	if (pImage3 == NULL) return NULL;
 	double t4 = Helpers::GetExactTickCount();
 	// Resize Y again
-	CXMMImage* pImage4 = ApplyFilter_SSE(pImage3->GetHeight(), clippedTargetSize.cx, clippedTargetSize.cy, nStartX, 0, nIncrementX, kernelsX, nFilterOffsetX, pImage3, true);
+	// with a display transform the values are not rounded to the 12 bit linear table, they are converted in floating point
+	CXMMImage* pImage4 = ApplyFilter_SSE(pImage3->GetHeight(), clippedTargetSize.cx, clippedTargetSize.cy, nStartX, 0, nIncrementX, kernelsX, nFilterOffsetX, pImage3, pDisplayTransform == NULL);
 	delete pImage3;
 	if (pImage4 == NULL) return NULL;
 	double t5 = Helpers::GetExactTickCount();
 	// Rotate back
-	void* pTargetDIB = RotateToDIB(pImage4, 4, pTarget);
+	void* pTargetDIB = (pDisplayTransform != NULL) ? RotateToDIBDisplay(pImage4, pDisplayTransform, pTarget) : RotateToDIB(pImage4, 4, pTarget);
 	double t6 = Helpers::GetExactTickCount();
 
 	delete pImage4;
@@ -2540,7 +2577,7 @@ void* SampleDown_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, 
 }
 
 void* SampleUp_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-	CSize sourceSize, const void* pPixels, int nChannels, bool bSSE, uint8* pTarget) {
+	CSize sourceSize, const void* pPixels, int nChannels, bool bSSE, uint8* pTarget, const CDisplayRenderTransform* pDisplayTransform) {
 	int nTargetWidth = clippedTargetSize.cx;
 	int nTargetHeight = clippedTargetSize.cy;
 	int nSourceWidth = sourceSize.cx;
@@ -2578,10 +2615,10 @@ void* SampleUp_HQ_MMX_SSE_Core(CSize fullTargetSize, CPoint fullTargetOffset, CS
 	CXMMImage* pImage3 = Rotate(pImage2, 4);
 	delete pImage2;
 	if (pImage3 == NULL) return NULL;
-	CXMMImage* pImage4 = ApplyFilter_SSE(pImage3->GetHeight(), nTargetWidth, nTargetHeight, nStartX, 0, nIncrementX, kernelsX, nFilterOffsetX, pImage3, true);
+	CXMMImage* pImage4 = ApplyFilter_SSE(pImage3->GetHeight(), nTargetWidth, nTargetHeight, nStartX, 0, nIncrementX, kernelsX, nFilterOffsetX, pImage3, pDisplayTransform == NULL);
 	delete pImage3;
 	if (pImage4 == NULL) return NULL;
-	void* pTargetDIB = RotateToDIB(pImage4, 4, pTarget);
+	void* pTargetDIB = (pDisplayTransform != NULL) ? RotateToDIBDisplay(pImage4, pDisplayTransform, pTarget) : RotateToDIB(pImage4, 4, pTarget);
 	delete pImage4;
 	
 	return pTargetDIB;
@@ -2723,9 +2760,12 @@ static CXMMImage* Rotate_AVX(const CXMMImage* pSourceImg) {
 // nFilterOffset: index of the first target column in filter.Indices
 // pTarget: first pixel of the strip in the target DIB (nTargetWidth pixels are written per line),
 // nTargetStride: pixels per line of the target DIB
+// pDisplayTransform: if not NULL, the filtered values are converted with it instead of with the LinRGB12_sRGB8 table
+// (PreciseDisplayColors=true): they are clamped to [0, 4095] and scaled to [0, 1], but not rounded, collected in
+// pFloatLines (nStripLines lines of nTargetWidth B, G, R floats) and converted line by line at the end.
 static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int nStripLines,
 	int nStartX_FP, int nIncrementX_FP, const AVXFilterKernelBlock& filter, int nFilterOffset,
-	uint8* pTarget, int nTargetStride) {
+	uint8* pTarget, int nTargetStride, const CDisplayRenderTransform* pDisplayTransform, float* pFloatLines) {
 
 	const uint32* pLUT = GetLinRGB12_sRGB8_32();
 	const int nChannelLen = pSourceImg->GetPaddedWidth();
@@ -2733,7 +2773,9 @@ static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int n
 	const int nNumberOfBlocks = (nStripLines + 7) >> 3;
 	const __m256 ymmZero = _mm256_setzero_ps();
 	const __m256 ymmMax = _mm256_set1_ps(4095.0f);
+	const __m256 ymmScale = _mm256_set1_ps(1.0f / 4095.0f);
 	const __m256i ymmAlpha = _mm256_set1_epi32((int)ALPHA_OPAQUE);
+	float fChannels[3][8];
 
 	const float* pFirstLine[8];
 	const AVXFilterKernel* pKernels[8];
@@ -2751,6 +2793,7 @@ static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int n
 		}
 
 		for (int nBlock = 0; nBlock < nNumberOfBlocks; nBlock++) {
+			int nLines = min(8, nStripLines - nBlock * 8);
 			// filter 8 strip lines (vector lanes) for each of the target columns
 			for (int c = 0; c < nColumns; c++) {
 				const float* pR = pFirstLine[c] + nBlock * 8;
@@ -2766,6 +2809,19 @@ static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int n
 					ymmB = _mm256_fmadd_ps(_mm256_load_ps(pR + 2 * nChannelLen), ymmKernel, ymmB);
 					pR += nLineLen;
 				}
+				if (pDisplayTransform != NULL) {
+					// Clamping [0, 4095] and scaling to [0, 1], stored as B, G, R per pixel for the display transform
+					_mm256_storeu_ps(fChannels[0], _mm256_mul_ps(_mm256_min_ps(_mm256_max_ps(ymmR, ymmZero), ymmMax), ymmScale));
+					_mm256_storeu_ps(fChannels[1], _mm256_mul_ps(_mm256_min_ps(_mm256_max_ps(ymmG, ymmZero), ymmMax), ymmScale));
+					_mm256_storeu_ps(fChannels[2], _mm256_mul_ps(_mm256_min_ps(_mm256_max_ps(ymmB, ymmZero), ymmMax), ymmScale));
+					for (int nLine = 0; nLine < nLines; nLine++) {
+						float* pFloatDst = pFloatLines + ((size_t)(nBlock * 8 + nLine) * nTargetWidth + nX + c) * 3;
+						pFloatDst[0] = fChannels[0][nLine];
+						pFloatDst[1] = fChannels[1][nLine];
+						pFloatDst[2] = fChannels[2][nLine];
+					}
+					continue;
+				}
 				// Clamping [0, 4095] and rounding, then 12 bit linear -> 8 bit sRGB
 				ymmR = _mm256_round_ps(_mm256_min_ps(_mm256_max_ps(ymmR, ymmZero), ymmMax), _MM_FROUND_TO_NEAREST_INT);
 				ymmG = _mm256_round_ps(_mm256_min_ps(_mm256_max_ps(ymmG, ymmZero), ymmMax), _MM_FROUND_TO_NEAREST_INT);
@@ -2779,9 +2835,11 @@ static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int n
 				ymmPixels[c] = _mm256_castsi256_ps(ymmPixel);
 			}
 
+			if (pDisplayTransform != NULL) {
+				continue; // converted at the end
+			}
 			// ymmPixels[c] holds column c for 8 lines -> transpose to 8 lines of 8 columns
 			Transpose8x8_AVX(ymmPixels);
-			int nLines = min(8, nStripLines - nBlock * 8);
 			uint8* pDst = pTarget + ((size_t)nBlock * 8 * nTargetStride + nX) * 4;
 			if (nColumns == 8) {
 				for (int nLine = 0; nLine < nLines; nLine++) {
@@ -2796,6 +2854,13 @@ static void FilterToDIB_AVX(const CXMMImage* pSourceImg, int nTargetWidth, int n
 			for (int c = nColumns; c < 8; c++) {
 				ymmPixels[c] = _mm256_setzero_ps();
 			}
+		}
+	}
+
+	if (pDisplayTransform != NULL) {
+		_mm256_zeroupper(); // lcms is not AVX code, avoid the AVX-SSE transition penalties
+		for (int nLine = 0; nLine < nStripLines; nLine++) {
+			pDisplayTransform->Convert(pFloatLines + (size_t)nLine * nTargetWidth * 3, pTarget + (size_t)nLine * nTargetStride * 4, nTargetWidth);
 		}
 	}
 }
@@ -2854,7 +2919,8 @@ static int MaxFilterLen(const AVXFilterKernelBlock& kernels, int nFirstLine, int
 // directly into the target DIB.
 static bool SampleTile_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 	CSize sourceSize, const void* pPixels, int nChannels, EFilterType eFilter,
-	const AVXFilterKernelBlock& kernelsX, const AVXFilterKernelBlock& kernelsY, uint8* pTarget, int nTargetStride) {
+	const AVXFilterKernelBlock& kernelsX, const AVXFilterKernelBlock& kernelsY, uint8* pTarget, int nTargetStride,
+	const CDisplayRenderTransform* pDisplayTransform) {
 
 	bool bUpsampling = (eFilter == Filter_Upsampling_Bicubic);
 
@@ -2898,6 +2964,12 @@ static bool SampleTile_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSi
 	int nBytesPerLine = 3 * sizeof(float) * max(nPaddedSectionWidth, Helpers::DoPadding(clippedTargetSize.cx, 8));
 	int nStripHeight = max(8, (AVX_STRIP_BUDGET_BYTES / nBytesPerLine) & ~7);
 
+	// Display transform: the filtered values of a strip are collected here (B, G, R floats per target pixel)
+	std::vector<float> floatLines;
+	if (pDisplayTransform != NULL) {
+		floatLines.resize((size_t)min(nStripHeight, clippedTargetSize.cy) * clippedTargetSize.cx * 3);
+	}
+
 	for (int nStripStart = 0; nStripStart < clippedTargetSize.cy; nStripStart += nStripHeight) {
 		int nStripSize = min(nStripHeight, clippedTargetSize.cy - nStripStart);
 
@@ -2938,7 +3010,8 @@ static bool SampleTile_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSi
 
 		// Resize X directly into the target DIB
 		FilterToDIB_AVX(pImage3, clippedTargetSize.cx, nStripSize, nStartX, nIncrementX, kernelsX, fullTargetOffset.x,
-						pTarget + (size_t)nTargetStride * 4 * nStripStart, nTargetStride);
+						pTarget + (size_t)nTargetStride * 4 * nStripStart, nTargetStride,
+						pDisplayTransform, floatLines.empty() ? NULL : floatLines.data());
 		delete pImage3;
 	}
 
@@ -2954,7 +3027,8 @@ static bool SampleTile_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSi
 // tiles narrower than MIN_L2_TILE_WIDTH, where the overlap gets expensive. Then the ring buffer gets half of the
 // L3 share of a thread instead (L3 / threads / 2), with tiles between MIN_TILE_WIDTH and MIN_L2_TILE_WIDTH.
 static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget) {
+	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget,
+	const CDisplayRenderTransform* pDisplayTransform) {
 
 	CAutoAVXFilter filterY(sourceSize.cy, fullTargetSize.cy, dSharpen, eFilter);
 	const AVXFilterKernelBlock& kernelsY = filterY.Kernels();
@@ -2984,7 +3058,7 @@ static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CS
 		int nTileSize = min(nTileWidth, clippedTargetSize.cx - nTileStart);
 		if (!SampleTile_HQ_AVX(fullTargetSize, CPoint(fullTargetOffset.x + nTileStart, fullTargetOffset.y),
 							   CSize(nTileSize, clippedTargetSize.cy), sourceSize, pPixels, nChannels, eFilter,
-							   kernelsX, kernelsY, pTarget + (size_t)nTileStart * 4, clippedTargetSize.cx)) {
+							   kernelsX, kernelsY, pTarget + (size_t)nTileStart * 4, clippedTargetSize.cx, pDisplayTransform)) {
 			return false;
 		}
 	}
@@ -2994,7 +3068,8 @@ static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CS
 #else // not supported in 32 bit
 
 static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget) {
+	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, uint8* pTarget,
+	const CDisplayRenderTransform* pDisplayTransform) {
 	return false;
 }
 
@@ -3003,7 +3078,7 @@ static bool SampleSlice_HQ_AVX(CSize fullTargetSize, CPoint fullTargetOffset, CS
 
 void* CBasicProcessing::SampleDown_HQ_SIMD(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
 	CSize sourceSize, const void* pPixels, int nChannels, double dSharpen,
-	EFilterType eFilter, SIMDArchitecture simd) {
+	EFilterType eFilter, SIMDArchitecture simd, const CDisplayRenderTransform* pDisplayTransform) {
 	if (pPixels == NULL || clippedTargetSize.cx <= 0 || clippedTargetSize.cy <= 0) {
 		return NULL;
 	}
@@ -3013,14 +3088,14 @@ void* CBasicProcessing::SampleDown_HQ_SIMD(CSize fullTargetSize, CPoint fullTarg
 	CProcessingThreadPool& threadPool = CProcessingThreadPool::This();
 	CRequestUpDownSampling request(pPixels, sourceSize,
 		pTarget, fullTargetSize, fullTargetOffset, clippedTargetSize,
-		nChannels, dSharpen, eFilter, simd);
+		nChannels, dSharpen, eFilter, simd, pDisplayTransform);
 	bool bSuccess = threadPool.Process(&request);
 
 	return bSuccess ? pTarget : NULL;
 }
 
 void* CBasicProcessing::SampleUp_HQ_SIMD(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-	CSize sourceSize, const void* pPixels, int nChannels, SIMDArchitecture simd) {
+	CSize sourceSize, const void* pPixels, int nChannels, SIMDArchitecture simd, const CDisplayRenderTransform* pDisplayTransform) {
 	if (pPixels == NULL || fullTargetSize.cx < 2 || fullTargetSize.cy < 2 || clippedTargetSize.cx <= 0 || clippedTargetSize.cy <= 0) {
 		return NULL;
 	}
@@ -3030,7 +3105,7 @@ void* CBasicProcessing::SampleUp_HQ_SIMD(CSize fullTargetSize, CPoint fullTarget
 	CProcessingThreadPool& threadPool = CProcessingThreadPool::This();
 	CRequestUpDownSampling request(pPixels, sourceSize,
 		pTarget, fullTargetSize, fullTargetOffset, clippedTargetSize,
-		nChannels, 0.0, Filter_Upsampling_Bicubic, simd);
+		nChannels, 0.0, Filter_Upsampling_Bicubic, simd, pDisplayTransform);
 	bool bSuccess = threadPool.Process(&request);
 
 	return bSuccess ? pTarget : NULL;

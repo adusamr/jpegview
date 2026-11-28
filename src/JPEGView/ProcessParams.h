@@ -11,8 +11,15 @@ enum EProcessingFlags {
 	PFLAG_HighQualityResampling = 8,
 	PFLAG_KeepParams = 16, // Keep parameters between images
 	PFLAG_LandscapeMode = 32,
-	PFLAG_NoProcessingAfterLoad = 64
+	PFLAG_NoProcessingAfterLoad = 64,
+	// The DIB is painted on the screen: with PreciseDisplayColors=true, high quality resampling converts it directly to
+	// the display color space (see CDisplayColorProfile::GetRenderTransform()). Only set for DIBs that are painted,
+	// never stored (parameter DB) and never set for DIBs leaving JPEGView (saving, clipboard, printing).
+	PFLAG_DisplayRendering = 128
 };
+
+// Processing flags of the image adjustments that are not available with PreciseDisplayColors=true
+static const int PFLAG_AdjustmentFlags = PFLAG_AutoContrast | PFLAG_AutoContrastSection | PFLAG_LDC | PFLAG_LandscapeMode;
 
 static inline EProcessingFlags SetProcessingFlag(EProcessingFlags eFlags, EProcessingFlags eFlagToSet, bool bValue) {
 	return bValue ? (EProcessingFlags)(eFlags | eFlagToSet) : (EProcessingFlags)(eFlags & ~eFlagToSet);
@@ -69,7 +76,24 @@ public:
 	double CyanRed; // in [-1..1], 0 means no color correction
 	double MagentaGreen; // in [-1..1], 0 means no color correction
 	double YellowBlue; // in [-1..1], 0 means no color correction
+
+	// Turns off the adjustments that are not available with PreciseDisplayColors=true (contrast, gamma, saturation and
+	// color balance). Sharpen is kept, it is part of the resampling filter. Local density correction and auto correction
+	// are turned off with the processing flags (PFLAG_AdjustmentFlags), their parameters are not used then.
+	void RemoveAdjustments() {
+		Contrast = 0.0;
+		Gamma = 1.0;
+		Saturation = 1.0;
+		CyanRed = 0.0;
+		MagentaGreen = 0.0;
+		YellowBlue = 0.0;
+	}
 };
+
+// Removes the flags of the image adjustments (see PFLAG_AdjustmentFlags)
+static inline EProcessingFlags RemoveAdjustmentFlags(EProcessingFlags eFlags) {
+	return (EProcessingFlags)(eFlags & ~PFLAG_AdjustmentFlags);
+}
 
 // Parameters used in unsharp masking
 class CUnsharpMaskParams {

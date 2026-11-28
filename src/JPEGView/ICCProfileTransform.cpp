@@ -392,36 +392,43 @@ namespace {
 		return true;
 	}
 
-	// True if the profile is a matrix/TRC RGB profile (colorants and one tone curve per channel, no lookup tables)
-	// whose tone curves differ from the sRGB tone curve (see ICCProfileTransform::ReencodeToSRGBToneCurve())
-	bool NeedsSRGBToneCurveVariant(cmsHPROFILE hProfile) {
+	// Checks if the profile is a matrix/TRC RGB profile (colorants and one tone curve per channel, no lookup tables).
+	// Returns 0 if not, 1 if all its tone curves are the sRGB tone curve, 2 if one of them differs from the sRGB tone curve.
+	int GetMatrixShaperToneCurveType(cmsHPROFILE hProfile) {
 		if (cmsGetColorSpace(hProfile) != cmsSigRgbData || !cmsIsMatrixShaper(hProfile)) {
-			return false;
+			return 0;
 		}
 		// lcms uses the lookup tables instead of the matrix if the profile has both, they may describe other colors
 		if (cmsIsTag(hProfile, cmsSigAToB0Tag) || cmsIsTag(hProfile, cmsSigAToB1Tag) || cmsIsTag(hProfile, cmsSigAToB2Tag) ||
 			cmsIsTag(hProfile, cmsSigDToB0Tag) || cmsIsTag(hProfile, cmsSigDToB1Tag) || cmsIsTag(hProfile, cmsSigDToB2Tag)) {
-			return false;
+			return 0;
 		}
 		const cmsTagSignature trcs[3] = { cmsSigRedTRCTag, cmsSigGreenTRCTag, cmsSigBlueTRCTag };
+		int nType = 1;
 		for (int i = 0; i < 3; i++) {
 			const cmsToneCurve* curve = (const cmsToneCurve*)cmsReadTag(hProfile, trcs[i]);
 			if (curve == NULL) {
-				return false;
+				return 0;
 			}
 			if (!IsSRGBToneCurve(curve)) {
-				return true;
+				nType = 2;
 			}
 		}
-		return false;
+		return nType;
+	}
+
+	// True if the profile is a matrix/TRC RGB profile whose tone curves differ from the sRGB tone curve
+	// (see ICCProfileTransform::ReencodeToSRGBToneCurve())
+	bool NeedsSRGBToneCurveVariant(cmsHPROFILE hProfile) {
+		return GetMatrixShaperToneCurveType(hProfile) == 2;
 	}
 
 	// Creates a matrix/TRC profile with the colorants, white point, chromatic adaptation, version and device class of
-	// the given matrix/TRC profile, but with the sRGB tone curve. So it has the same gamut, only the encoding differs.
+	// the given matrix/TRC profile, but with the given tone curve (takes ownership of curve) for all channels. So it has
+	// the same gamut, only the encoding differs. sSuffix is appended to the description.
 	// Returns it serialized as ICC profile, empty on failure.
-	std::vector<unsigned char> CreateSRGBToneCurveVariant(cmsHPROFILE hProfile) {
+	std::vector<unsigned char> CreateToneCurveVariant(cmsHPROFILE hProfile, cmsToneCurve* curve, LPCTSTR sSuffix) {
 		std::vector<unsigned char> data;
-		cmsToneCurve* curve = CreateSRGBToneCurve();
 		cmsHPROFILE hNew = cmsCreateProfilePlaceholder(NULL);
 		if (curve != NULL && hNew != NULL) {
 			cmsSetProfileVersion(hNew, cmsGetProfileVersion(hProfile));
@@ -446,7 +453,7 @@ namespace {
 			}
 			if (bOk) {
 				CString sDescription = GetProfileDisplayName(hProfile, CString());
-				sDescription += _T(" (sRGB tone curve)");
+				sDescription += sSuffix;
 				cmsMLU* pDescription = cmsMLUalloc(NULL, 1);
 				if (pDescription != NULL) {
 					cmsMLUsetWide(pDescription, "en", "US", CT2CW(sDescription));
@@ -492,7 +499,7 @@ namespace {
 			cmsHPROFILE hProfile = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
 			if (hProfile != NULL) {
 				if (NeedsSRGBToneCurveVariant(hProfile)) {
-					std::vector<unsigned char> data = CreateSRGBToneCurveVariant(hProfile);
+					std::vector<unsigned char> data = CreateToneCurveVariant(hProfile, CreateSRGBToneCurve(), _T(" (sRGB tone curve)"));
 					if (!data.empty()) {
 						variant = std::make_shared<const std::vector<unsigned char>>(std::move(data));
 					}
@@ -876,6 +883,7 @@ bool CDisplayColorProfile::Update(HWND hWnd) {
 	sm_bValid = true;
 	CreateDisplayTransform(hMonitor);
 	sm_nTransformGeneration++;
+	UpdateRenderState();
 
 	return bWasActive != (sm_transform != NULL) || sOldProfileName != sm_sProfileName;
 }
@@ -1027,6 +1035,165 @@ void CDisplayColorProfile::CreateDisplayTransform(HMONITOR hMonitor) {
 	}
 }
 
+///////////////////////////////////////////////////////////////////////////////////
+// CDisplayRenderTransform, CDisplayColorProfile::GetRenderTransform()
+///////////////////////////////////////////////////////////////////////////////////
+
+CDisplayRenderTransform::~CDisplayRenderTransform() {
+	if (m_transform != NULL) {
+		cmsDeleteTransform(m_transform);
+	}
+}
+
+void CDisplayRenderTransform::Convert(float* pSource, unsigned char* pTarget, int nPixels) const {
+	if (nPixels <= 0) {
+		return;
+	}
+	if (m_bEncodeSRGB) {
+		for (int i = 0; i < nPixels * 3; i++) {
+			float v = pSource[i];
+			pSource[i] = (v <= 0.0031308f) ? 12.92f * v : 1.055f * powf(v, 1.0f / 2.4f) - 0.055f;
+		}
+	}
+	cmsDoTransform(m_transform, pSource, pTarget, (cmsUInt32Number)nPixels);
+	// lcms does not write the alpha channel of the output, it has no alpha channel in the input
+	unsigned int* pPixel = (unsigned int*)pTarget;
+	for (int i = 0; i < nPixels; i++) {
+		pPixel[i] |= 0xFF000000;
+	}
+}
+
+namespace {
+	// State of the display for CDisplayColorProfile::GetRenderTransform(), which can be called from any thread.
+	// Written by CDisplayColorProfile::UpdateRenderState() on the UI thread, everything protected by s_renderMutex.
+	std::mutex s_renderMutex;
+	bool s_bRenderStateValid = false;
+	bool s_bRenderEnabled = false; // display color management is on (CDisplayColorProfile::sm_bEnabled)
+	bool s_bRenderSRGBToDisplay = false; // sRGB images need a conversion (CDisplayColorProfile::sm_transform != NULL)
+	std::shared_ptr<const std::vector<unsigned char>> s_renderDisplayProfile; // empty if the display is treated as sRGB
+	// Cache of the created transforms (also failed attempts, as empty pointer), cleared when the display changes
+	std::vector<std::pair<ICCProfilePtr, DisplayRenderTransformPtr>> s_renderTransforms;
+	const size_t RENDER_TRANSFORM_CACHE_SIZE = 8;
+
+	bool IsSameProfile(const ICCProfilePtr& profile1, const ICCProfilePtr& profile2) {
+		bool bEmpty1 = profile1 == NULL || profile1->empty();
+		bool bEmpty2 = profile2 == NULL || profile2->empty();
+		if (bEmpty1 || bEmpty2) {
+			return bEmpty1 == bEmpty2;
+		}
+		return profile1 == profile2 || *profile1 == *profile2;
+	}
+
+	// Creates the transform from the linear light output of the resampler (in the color space of the given profile,
+	// sRGB if empty) to the given display profile (sRGB if empty)
+	DisplayRenderTransformPtr CreateRenderTransform(const ICCProfilePtr& profile, const std::shared_ptr<const std::vector<unsigned char>>& displayProfile) {
+		cmsHPROFILE hSource = NULL;
+		cmsHPROFILE hIn = NULL;
+		cmsHPROFILE hOut = NULL;
+		cmsHTRANSFORM transform = NULL;
+		bool bEncodeSRGB = false;
+		try {
+			if (profile == NULL || profile->empty()) {
+				hSource = cmsCreate_sRGBProfile();
+			} else {
+				hSource = cmsOpenProfileFromMem(profile->data(), (cmsUInt32Number)profile->size());
+			}
+			if (hSource != NULL) {
+				// The resampler decodes all pixels with the sRGB tone curve. For matrix/TRC profiles with the sRGB tone curve
+				// (all of them after ICCProfileTransform::ReencodeToSRGBToneCurve()) its output is converted with the same
+				// profile with a linear tone curve.
+				if (GetMatrixShaperToneCurveType(hSource) == 1) {
+					std::vector<unsigned char> linearProfile = CreateToneCurveVariant(hSource, CreateGammaToneCurve(1.0), _T(" (linear)"));
+					if (!linearProfile.empty()) {
+						hIn = cmsOpenProfileFromMem(linearProfile.data(), (cmsUInt32Number)linearProfile.size());
+					}
+				}
+				if (hIn == NULL) {
+					// Profile with lookup tables: the output is encoded with the sRGB tone curve again (in floating point)
+					// and converted with the profile itself
+					hIn = hSource;
+					hSource = NULL;
+					bEncodeSRGB = true;
+				}
+			}
+			hOut = (displayProfile == NULL || displayProfile->empty()) ? cmsCreate_sRGBProfile() :
+				cmsOpenProfileFromMem(displayProfile->data(), (cmsUInt32Number)displayProfile->size());
+			if (hIn != NULL && hOut != NULL) {
+				// Same intent and flags as the transforms applied when painting (see CDisplayColorProfile::GetTransform()).
+				// cmsFLAGS_NOCACHE: the transform is used on several threads in parallel
+				cmsUInt32Number flags = cmsFLAGS_BLACKPOINTCOMPENSATION | cmsFLAGS_NOCACHE;
+				transform = cmsCreateTransform(hIn, TYPE_BGR_FLT, hOut, TYPE_BGRA_8, INTENT_RELATIVE_COLORIMETRIC, flags);
+			}
+		} catch (...) {
+			transform = NULL;
+		}
+		if (hSource != NULL) cmsCloseProfile(hSource);
+		if (hIn != NULL) cmsCloseProfile(hIn);
+		if (hOut != NULL) cmsCloseProfile(hOut);
+		if (transform == NULL) {
+			return DisplayRenderTransformPtr();
+		}
+		return DisplayRenderTransformPtr(new CDisplayRenderTransform(transform, bEncodeSRGB));
+	}
+}
+
+void CDisplayColorProfile::UpdateRenderState() {
+	std::lock_guard<std::mutex> lock(s_renderMutex);
+	bool bSRGBToDisplay = sm_transform != NULL;
+	bool bSameDisplayProfile = sm_displayProfile.empty() ? (s_renderDisplayProfile == NULL) :
+		(s_renderDisplayProfile != NULL && *s_renderDisplayProfile == sm_displayProfile);
+	if (s_bRenderStateValid && s_bRenderEnabled == sm_bEnabled && s_bRenderSRGBToDisplay == bSRGBToDisplay && bSameDisplayProfile) {
+		return; // nothing changed (e.g. reactivation of the application), keep the transforms - the images need not be resampled again
+	}
+	s_bRenderStateValid = true;
+	s_bRenderEnabled = sm_bEnabled;
+	s_bRenderSRGBToDisplay = bSRGBToDisplay;
+	if (sm_displayProfile.empty()) {
+		s_renderDisplayProfile.reset();
+	} else {
+		s_renderDisplayProfile = std::make_shared<const std::vector<unsigned char>>(sm_displayProfile);
+	}
+	s_renderTransforms.clear(); // transforms still used by an image stay alive until it is resampled
+}
+
+DisplayRenderTransformPtr CDisplayColorProfile::GetRenderTransform(const ICCProfilePtr& profile) {
+	std::shared_ptr<const std::vector<unsigned char>> displayProfile;
+	{
+		std::lock_guard<std::mutex> lock(s_renderMutex);
+		if (!s_bRenderStateValid || !s_bRenderEnabled) {
+			return DisplayRenderTransformPtr();
+		}
+		bool bHasProfile = profile != NULL && !profile->empty();
+		if (!bHasProfile && !s_bRenderSRGBToDisplay) {
+			return DisplayRenderTransformPtr(); // sRGB image on a display treated as sRGB
+		}
+		for (size_t i = 0; i < s_renderTransforms.size(); i++) {
+			if (IsSameProfile(s_renderTransforms[i].first, profile)) {
+				return s_renderTransforms[i].second;
+			}
+		}
+		displayProfile = s_renderDisplayProfile;
+	}
+
+	// Creating the transform takes some time, it is done without holding the lock
+	DisplayRenderTransformPtr transform = CreateRenderTransform(profile, displayProfile);
+
+	std::lock_guard<std::mutex> lock(s_renderMutex);
+	if (s_renderDisplayProfile != displayProfile) {
+		return transform; // the display changed meanwhile, the transform is not cached
+	}
+	for (size_t i = 0; i < s_renderTransforms.size(); i++) {
+		if (IsSameProfile(s_renderTransforms[i].first, profile)) {
+			return s_renderTransforms[i].second; // created by another thread meanwhile, all images shall use the same one
+		}
+	}
+	if (s_renderTransforms.size() >= RENDER_TRANSFORM_CACHE_SIZE) {
+		s_renderTransforms.erase(s_renderTransforms.begin());
+	}
+	s_renderTransforms.push_back(std::make_pair(profile, transform));
+	return transform;
+}
+
 #else
 
 // stub out lcms2 methods in an elegant way in XP build, as per suggestion https://github.com/sylikc/jpegview/commit/4b62f07e2a147a04a5014a5711d159670162e799#commitcomment-102738193
@@ -1077,6 +1244,10 @@ void* CDisplayColorProfile::GetTransform(const ICCProfilePtr& /* profile */) { r
 bool CDisplayColorProfile::Apply(void* /* transform */, const void* /* pSource */, void* /* pTarget */, int /* nWidth */, int /* nHeight */) { return false; }
 void CDisplayColorProfile::DeleteDisplayTransform() { }
 void CDisplayColorProfile::CreateDisplayTransform(HMONITOR /* hMonitor */) { }
+void CDisplayColorProfile::UpdateRenderState() { }
+DisplayRenderTransformPtr CDisplayColorProfile::GetRenderTransform(const ICCProfilePtr& /* profile */) { return DisplayRenderTransformPtr(); }
+CDisplayRenderTransform::~CDisplayRenderTransform() { }
+void CDisplayRenderTransform::Convert(float* /* pSource */, unsigned char* /* pTarget */, int /* nPixels */) const { }
 
 #endif
 

@@ -63,7 +63,8 @@ void CImageProcPanelCtl::SetVisible(bool bVisible) {
 
 void CImageProcPanelCtl::AfterNewImageLoaded() {
 	ShowHideSaveDBButtons();
-	m_pImageProcPanel->GetBtnUnsharpMask()->SetShow(CurrentImage() != NULL);
+	// unsharp mask is not available with PreciseDisplayColors=true
+	m_pImageProcPanel->GetBtnUnsharpMask()->SetShow(CurrentImage() != NULL && !CSettingsProvider::This().PreciseDisplayColors());
 	if (CurrentImage() != NULL && !CurrentImage()->IsClipboardImage() && !m_pMainDlg->IsInMovieMode()) {
 		m_pImageProcPanel->GetTextParamDB()->SetShow(true);
 		m_pImageProcPanel->GetTextRename()->SetShow(true);
@@ -230,6 +231,9 @@ bool CImageProcPanelCtl::RenameCurrentFile(LPCTSTR sNewFileTitle) {
 }
 
 void CImageProcPanelCtl::OnUnsharpMask(void* pContext, int nParameter, CButtonCtrl & sender) {
+	if (CSettingsProvider::This().PreciseDisplayColors()) {
+		return; // not available (the button is hidden)
+	}
 	((CImageProcPanelCtl*)pContext)->m_pMainDlg->GetUnsharpMaskPanelCtl()->SetVisible(true);
 }
 

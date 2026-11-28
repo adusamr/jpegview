@@ -95,7 +95,7 @@ static const CSize HUGE_SIZE = CSize(99999999, 99999999);
 // Gets default image processing parameters as set in INI file
 static CImageProcessingParams GetDefaultProcessingParams() {
 	CSettingsProvider& sp = CSettingsProvider::This();
-	return CImageProcessingParams(
+	CImageProcessingParams params(
 		sp.Contrast(),
 		sp.Gamma(),
 		sp.Saturation(),
@@ -107,6 +107,10 @@ static CImageProcessingParams GetDefaultProcessingParams() {
 		sp.CyanRed(),
 		sp.MagentaGreen(),
 		sp.YellowBlue());
+	if (sp.PreciseDisplayColors()) {
+		params.RemoveAdjustments(); // not available, see PreciseDisplayColors
+	}
+	return params;
 }
 
 // Gets hardcoded processing parameters, turning off all processing except sharpening according to INI
@@ -122,6 +126,9 @@ static EProcessingFlags GetDefaultProcessingFlags(bool bLandscapeMode) {
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_AutoContrast, sp.AutoContrastCorrection());
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_LDC, sp.LocalDensityCorrection());
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_LandscapeMode, bLandscapeMode);
+	if (sp.PreciseDisplayColors()) {
+		eProcFlags = RemoveAdjustmentFlags(eProcFlags); // not available, see PreciseDisplayColors
+	}
 	return eProcFlags;
 }
 
@@ -136,7 +143,42 @@ static EProcessingFlags CreateProcessingFlags(bool bHQResampling, bool bAutoCont
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_LDC, bLDC);
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_KeepParams, bKeepParams);
 	eProcFlags = SetProcessingFlag(eProcFlags, PFLAG_LandscapeMode, bLandscapeMode);
+	if (CSettingsProvider::This().PreciseDisplayColors()) {
+		eProcFlags = RemoveAdjustmentFlags(eProcFlags); // not available, see PreciseDisplayColors
+	}
 	return eProcFlags;
+}
+
+// Adds PFLAG_DisplayRendering to the flags of a DIB that is painted on the screen: with PreciseDisplayColors=true it is
+// converted to the display by the resampler. Must not be used for DIBs that leave JPEGView (saving, clipboard, printing).
+static EProcessingFlags ForDisplay(EProcessingFlags eProcFlags) {
+	return SetProcessingFlag(eProcFlags, PFLAG_DisplayRendering, CSettingsProvider::This().PreciseDisplayColors());
+}
+
+// True for the commands of the image adjustments that are not available with PreciseDisplayColors=true
+static bool IsImageAdjustmentCommand(int nCommand) {
+	switch (nCommand) {
+		case IDM_AUTO_CORRECTION:
+		case IDM_AUTO_CORRECTION_SECTION:
+		case IDM_LDC:
+		case IDM_LANDSCAPE_MODE:
+		case IDM_COLOR_CORRECTION_INC:
+		case IDM_COLOR_CORRECTION_DEC:
+		case IDM_CONTRAST_CORRECTION_INC:
+		case IDM_CONTRAST_CORRECTION_DEC:
+		case IDM_CONTRAST_INC:
+		case IDM_CONTRAST_DEC:
+		case IDM_GAMMA_INC:
+		case IDM_GAMMA_DEC:
+		case IDM_LDC_SHADOWS_INC:
+		case IDM_LDC_SHADOWS_DEC:
+		case IDM_LDC_HIGHLIGHTS_INC:
+		case IDM_LDC_HIGHLIGHTS_DEC:
+		case IDM_EXCHANGE_PROC_PARAMS:
+			return true;
+		default:
+			return false;
+	}
 }
 
 // Initialize boolean processing values from flag bitfield
@@ -147,6 +189,10 @@ static void InitFromProcessingFlags(EProcessingFlags eFlags, bool& bHQResampling
 	bAutoContrastSection = GetProcessingFlag(eFlags, PFLAG_AutoContrastSection);
 	bLDC = GetProcessingFlag(eFlags, PFLAG_LDC);
 	bLandscapeMode = GetProcessingFlag(eFlags, PFLAG_LandscapeMode);
+	if (CSettingsProvider::This().PreciseDisplayColors()) {
+		// not available, see PreciseDisplayColors
+		bAutoContrast = bAutoContrastSection = bLDC = bLandscapeMode = false;
+	}
 }
 
 // Sets the parameters according to the landscape enhancement mode
@@ -490,6 +536,9 @@ LRESULT CMainDlg::OnInitDialog(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam
 
 	int nReadAheadBuffers = CSettingsProvider::This().CacheRange()*2 + 1;	// The +1 is the current image
 	
+	// The display color profile is needed to resample the first images for the display (PreciseDisplayColors=true)
+	CDisplayColorProfile::Update(m_hWnd);
+
 	// create JPEG provider and request first image - do no processing yet if not in fullscreen mode (as we do not know the size yet)
 	m_pJPEGProvider = new CJPEGProvider(m_hWnd, NUM_THREADS, nReadAheadBuffers);
 	m_pCurrentImage = m_pJPEGProvider->RequestImage(m_pFileList, CJPEGProvider::FORWARD,
@@ -631,7 +680,7 @@ LRESULT CMainDlg::OnPaint(UINT /*uMsg*/, WPARAM /*wParam*/, LPARAM /*lParam*/, B
 		} else {
 			pDIBData = m_pCurrentImage->GetDIB(newSize, clippedSize, offsetsInImage, 
 				*m_pImageProcParams, 
-				CreateProcessingFlags(m_bHQResampling && !m_bTemporaryLowQ && !m_bZoomMode, m_bAutoContrast, m_bAutoContrastSection, m_bLDC, false, m_bLandscapeMode));
+				ForDisplay(CreateProcessingFlags(m_bHQResampling && !m_bTemporaryLowQ && !m_bZoomMode, m_bAutoContrast, m_bAutoContrastSection, m_bLDC, false, m_bLandscapeMode)));
 		}
 
 		// Zoom navigator - check if visible and create exclusion rectangle
@@ -844,7 +893,7 @@ void CMainDlg::PaintToDC(CDC& dc) {
 
 		void* pDIBData = pCurrentImage->GetDIB(newSize, clippedSize, offsetsInImage, 
 				*GetImageProcessingParams(),
-				CreateDefaultProcessingFlags());
+				ForDisplay(CreateDefaultProcessingFlags()));
 		if (pDIBData != NULL) {
 			CDisplayColorProfile::Update(m_hWnd);
 			pDIBData = ConvertDIBForDisplay(pCurrentImage, pDIBData, clippedSize);
@@ -915,6 +964,11 @@ void CMainDlg::DisplayFileName(const CRect& imageProcessingArea, CDC& dc, double
 
 void* CMainDlg::ConvertDIBForDisplay(CJPEGImage* pImage, void* pDIB, CSize dibSize) {
 	if (pImage == NULL || pDIB == NULL) {
+		return pDIB;
+	}
+	if (pImage->IsDIBDisplayEncoded()) {
+		// already converted to the display by the resampler (PreciseDisplayColors=true)
+		m_pDisplayColorCache->Clear();
 		return pDIB;
 	}
 	return m_pDisplayColorCache->Convert(pDIB, dibSize, pImage->DIBGeneration(), pImage->GetICCProfile());
@@ -1952,6 +2006,10 @@ bool CMainDlg::CloseHelpDlg() {
 void CMainDlg::ExecuteCommand(int nCommand) {
 	CSettingsProvider& sp = CSettingsProvider::This();
 	InvalidateHelpDlg();
+	if (sp.PreciseDisplayColors() && IsImageAdjustmentCommand(nCommand)) {
+		SetToast(CNLS::GetString(_T("Image adjustments are not available with PreciseDisplayColors=true")));
+		return;
+	}
 	switch (nCommand) {
 		case IDM_HELP:
 			if (m_pHelpDlg == NULL || m_pHelpDlg->IsDestroyed()) {
@@ -4165,7 +4223,7 @@ CProcessParams CMainDlg::CreateProcessParams(bool bNoProcessingAfterLoad) {
 			m_offsetKept,
 			m_eTransparencyMode,
 			_SetLandscapeModeParams(m_bLandscapeMode, *m_pImageProcParamsKept), 
-			SetProcessingFlag(_SetLandscapeModeFlags(m_eProcessingFlagsKept), PFLAG_NoProcessingAfterLoad, bNoProcessingAfterLoad));
+			ForDisplay(SetProcessingFlag(_SetLandscapeModeFlags(m_eProcessingFlagsKept), PFLAG_NoProcessingAfterLoad, bNoProcessingAfterLoad)));
 	} else {
 		m_isUserFitToScreen = false;
 		CSettingsProvider& sp = CSettingsProvider::This();
@@ -4173,7 +4231,7 @@ CProcessParams CMainDlg::CreateProcessParams(bool bNoProcessingAfterLoad) {
 			CMultiMonitorSupport::GetMonitorRect(m_hWnd).Size(),
 			CRotationParams(0), 0, -1, eAutoZoomMode, CPoint(0, 0), m_eTransparencyMode,
 			_SetLandscapeModeParams(m_bLandscapeMode, GetDefaultProcessingParams()),
-			SetProcessingFlag(_SetLandscapeModeFlags(GetDefaultProcessingFlags(m_bLandscapeMode)), PFLAG_NoProcessingAfterLoad, bNoProcessingAfterLoad));
+			ForDisplay(SetProcessingFlag(_SetLandscapeModeFlags(GetDefaultProcessingFlags(m_bLandscapeMode)), PFLAG_NoProcessingAfterLoad, bNoProcessingAfterLoad)));
 	}
 }
 
@@ -4357,6 +4415,9 @@ void CMainDlg::AfterNewImageLoaded(bool bSynchronize, bool bAfterStartup, bool n
 				}
 
 				*m_pImageProcParams = m_pCurrentImage->GetInitialProcessParams();
+				if (CSettingsProvider::This().PreciseDisplayColors()) {
+					m_pImageProcParams->RemoveAdjustments(); // e.g. from the parameter DB, not available, see PreciseDisplayColors
+				}
 			} else if (m_bCurrentImageIsSpecialProcessing && m_bKeepParams) {
 				// set this factor, no matter if we keep parameters
 				m_pImageProcParams->LightenShadows = m_pCurrentImage->GetInitialProcessParams().LightenShadows;
@@ -4715,7 +4776,7 @@ void CMainDlg::PrefetchDIB(const CRect& clientRect) {
 	CSize newSize = Helpers::GetVirtualImageSize(m_pCurrentImage->OrigSize(), clientRect.Size(), GetAutoZoomMode(), m_dZoom);
 	CSize clippedSize(min(clientRect.Width(), newSize.cx), min(clientRect.Height(), newSize.cy));
 	CPoint offsetsInImage = m_pCurrentImage->ConvertOffset(newSize, clippedSize, Helpers::LimitOffsets(m_offsets, clientRect.Size(), newSize));
-	m_pCurrentImage->GetDIB(newSize, clippedSize, offsetsInImage, *m_pImageProcParams, CreateDefaultProcessingFlags());
+	m_pCurrentImage->GetDIB(newSize, clippedSize, offsetsInImage, *m_pImageProcParams, ForDisplay(CreateDefaultProcessingFlags()));
 }
 
 double CMainDlg::GetZoomMultiplier(CJPEGImage* pImage, const CRect& clientRect) {

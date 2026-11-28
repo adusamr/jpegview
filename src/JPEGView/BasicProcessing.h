@@ -1,5 +1,7 @@
 #pragma once
 
+class CDisplayRenderTransform;
+
 // Basic image processing methods processing the image pixel data
 class CBasicProcessing
 {
@@ -187,8 +189,11 @@ public:
 	// Same as above, SIMD (AVX2/SSE/MMX) implementation.
 	// Notice that the A channel is not processed and set to fixed value 0xFF.
 	// Notice that the returned image is always 32 bpp!
+	// pDisplayTransform: if not NULL (AVX2 and SSE only), the filtered linear light values are converted with it directly
+	// to the display color space (in floating point, see CDisplayRenderTransform) instead of to 8 bit with the sRGB tone curve.
 	static void* SampleDown_HQ_SIMD(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-		CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, SIMDArchitecture simd);
+		CSize sourceSize, const void* pPixels, int nChannels, double dSharpen, EFilterType eFilter, SIMDArchitecture simd,
+		const CDisplayRenderTransform* pDisplayTransform = NULL);
 
 	// High quality upsampling of 32 or 24 bpp BGR(A) image using bicubic interpolation.
 	// Notice that the A channel is not processed and set to fixed value 0xFF.
@@ -200,8 +205,10 @@ public:
 	// Same as above, SIMD (AVX2/SSE/MMX) implementation.
 	// Notice that the A channel is not processed and set to fixed value 0xFF.
 	// Notice that the returned image is always 32 bpp!
+	// pDisplayTransform: see SampleDown_HQ_SIMD()
 	static void* SampleUp_HQ_SIMD(CSize fullTargetSize, CPoint fullTargetOffset, CSize clippedTargetSize,
-		CSize sourceSize, const void* pPixels, int nChannels, SIMDArchitecture simd);
+		CSize sourceSize, const void* pPixels, int nChannels, SIMDArchitecture simd,
+		const CDisplayRenderTransform* pDisplayTransform = NULL);
 
 	// Rotate 32 or 24 bpp BGR(A) image around image center using bicubic interpolation.
 	// Notice that the A channel is processed for 32 bpp images.

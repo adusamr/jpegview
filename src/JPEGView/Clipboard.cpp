@@ -71,7 +71,8 @@ void CClipboard::CopyImageToClipboard(HWND hWnd, CJPEGImage * pImage, LPCTSTR fi
 	}
 
 	pImage->EnableDimming(false);
-	DoCopy(hWnd, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessed(true), pImage->GetICCProfile(), pImage->IsClipboardImage() ? NULL : fileName);
+	// not the DIB converted to the display (PreciseDisplayColors=true), clipboard images are sRGB
+	DoCopy(hWnd, pImage->DIBWidth(), pImage->DIBHeight(), pImage->DIBPixelsLastProcessedForExport(), pImage->GetICCProfile(), pImage->IsClipboardImage() ? NULL : fileName);
 	pImage->EnableDimming(true);
 }
 
@@ -92,7 +93,7 @@ void CClipboard::CopyFullImageToClipboard(HWND hWnd, CJPEGImage * pImage, const 
 	clipRect.bottom = min(pImage->OrigHeight(), clipRect.bottom);
 
 	pImage->EnableDimming(false);
-	void* pDIB = pImage->GetDIB(pImage->OrigSize(), clipRect.Size(), clipRect.TopLeft(), procParams, eFlags);
+	void* pDIB = pImage->GetDIB(pImage->OrigSize(), clipRect.Size(), clipRect.TopLeft(), procParams, SetProcessingFlag(eFlags, PFLAG_DisplayRendering, false));
 	DoCopy(hWnd, clipRect.Width(), clipRect.Height(), pDIB, pImage->GetICCProfile(), pImage->IsClipboardImage() ? NULL : fileName);
 	pImage->EnableDimming(true);
 }

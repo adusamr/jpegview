@@ -97,6 +97,10 @@ public:
 	bool UseEmbeddedColorProfiles() { return m_bUseEmbeddedColorProfiles; }
 	// "auto" (monitor profile from Windows color management), "none" or file name of an ICC profile
 	const CString& DisplayColorProfile() { return m_sDisplayColorProfile; }
+	// True if resampled images are converted to the display color space by the resampler (in floating point, rounded
+	// to 8 bit only once). The image adjustments (contrast, gamma, saturation, color balance, auto correction, local
+	// density correction, landscape mode, unsharp mask) are not available then. Evaluated once, cannot change at runtime.
+	bool PreciseDisplayColors() { return m_bPreciseDisplayColors; }
 	LPCTSTR ACCExclude() { return m_sACCExclude; }
 	LPCTSTR ACCInclude() { return m_sACCInclude; }
 	LPCTSTR LDCExclude() { return m_sLDCExclude; }
@@ -287,6 +291,7 @@ private:
 	bool m_bAutoRotateEXIF;
 	bool m_bUseEmbeddedColorProfiles;
 	CString m_sDisplayColorProfile;
+	bool m_bPreciseDisplayColors;
 	CString m_sACCExclude;
 	CString m_sACCInclude;
 	CString m_sLDCExclude;

@@ -113,6 +113,32 @@ private:
 };
 
 
+// Converts the floating point output of the high quality resampling filter directly to the display, so the resampled
+// image is rounded to 8 bit only once (PreciseDisplayColors=true, see CDisplayColorProfile::GetRenderTransform()).
+// Immutable and thread safe, shared by all images using it.
+class CDisplayRenderTransform
+{
+public:
+	// Takes ownership of the lcms2 transform (float BGR input, 8 bit BGRA output).
+	// bEncodeSRGB: the input of the transform is encoded with the sRGB tone curve, not linear light (see Convert())
+	CDisplayRenderTransform(void* transform, bool bEncodeSRGB) : m_transform(transform), m_bEncodeSRGB(bEncodeSRGB) {}
+	~CDisplayRenderTransform();
+
+	// Converts nPixels pixels. pSource holds 3 floats per pixel in the order B, G, R: linear light in [0, 1] (clamped by
+	// the caller), in the color space of the image with the sRGB tone curve removed. pTarget receives nPixels 32 bpp BGRA
+	// display pixels with opaque alpha. The values in pSource are destroyed (used as scratch memory).
+	void Convert(float* pSource, unsigned char* pTarget, int nPixels) const;
+
+private:
+	CDisplayRenderTransform(const CDisplayRenderTransform&);
+	CDisplayRenderTransform& operator=(const CDisplayRenderTransform&);
+
+	void* m_transform;
+	bool m_bEncodeSRGB; // profile with lookup tables: the linear values are encoded with the sRGB tone curve before the transform
+};
+
+typedef std::shared_ptr<const CDisplayRenderTransform> DisplayRenderTransformPtr;
+
 // Color management for the display: converts the final, sRGB encoded 32 bpp BGRA DIBs that are painted
 // to the screen into the color space of the monitor the window is currently shown on.
 // All decoded and processed image data stays in sRGB, only the pixels blitted to the screen are converted,
@@ -149,9 +175,19 @@ public:
 	// pSource and pTarget may be identical. Returns false if transform is NULL.
 	static bool Apply(void* transform, const void* pSource, void* pTarget, int nWidth, int nHeight);
 
+	// Gets the transform the high quality resampling filter uses to convert the resampled image directly to the display
+	// (PreciseDisplayColors=true). profile is the embedded profile of the image, empty if its pixels are sRGB.
+	// Returns an empty pointer if the image needs no conversion - in the same cases as GetTransform() returns NULL -
+	// or if the transform cannot be created. The same pointer is returned until the display transform changes.
+	// Thread safe, unlike the other methods: also called by the image loading thread (resampling of read ahead images).
+	// Returns an empty pointer before the first call of Update().
+	static DisplayRenderTransformPtr GetRenderTransform(const ICCProfilePtr& profile);
+
 private:
 	static void DeleteDisplayTransform();
 	static void CreateDisplayTransform(HMONITOR hMonitor);
+	// Publishes the current display state for GetRenderTransform() (called by Update())
+	static void UpdateRenderState();
 
 	static void* sm_transform; // sRGB to display, NULL if not needed
 	static std::vector<unsigned char> sm_displayProfile; // empty if the display is sRGB (or treated as sRGB)

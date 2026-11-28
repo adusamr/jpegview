@@ -112,7 +112,7 @@ bool CPrintImage::DoPrint(HDC hPrinterDC, CPrintParameters* pPrintParameters, CJ
 			CPoint offset = pPrintParameters->ScaleByPrinterDriver ? CPoint(0, 0) : CPoint(max(0, printableRect.left - imageRect.left), max(0, printableRect.top - imageRect.top));
 
 			pImage->EnableDimming(false);
-			void* pDIBData = pImage->GetDIB(fullTargetSize, dibSize, offset, procParams, eFlags);
+			void* pDIBData = pImage->GetDIB(fullTargetSize, dibSize, offset, procParams, SetProcessingFlag(eFlags, PFLAG_DisplayRendering, false));
 			pImage->EnableDimming(true);
 
 			// Pixels kept in the color space of an embedded profile are printed as sRGB (on a copy, the DIB is cached by the image)

@@ -1,5 +1,14 @@
 JPEGView Changelog
 ******************
+[Unreleased] TBD
+New features:
+- New INI setting PreciseDisplayColors (default true): the high quality resampling filter converts images directly to
+  the display color profile, in floating point while the pixels are still linear light, so they are rounded to 8 bit
+  only once. Before, the resampled 8 bit image was converted a second time when painted, which caused small rounding
+  errors and could cause banding, especially for CMYK and Lab images (wide gamut working space). The image
+  adjustments (contrast, brightness, saturation, color balance, auto correction, local density correction, landscape
+  mode, unsharp mask) are not available in this mode; Sharpen is. Set PreciseDisplayColors=false to use them.
+
 [26.11.6] 2026-11-23
 Bugs fixed:
 - JPEGView no longer writes BookModePageHeight to the user INI file (creating that file if needed) every time it is

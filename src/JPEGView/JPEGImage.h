@@ -231,6 +231,15 @@ public:
 	// Same as DIBGeneration() for the DIB returned by the last GetThumbnailDIB() call
 	unsigned int ThumbnailDIBGeneration() const { return (m_pThumbnail == NULL) ? 0 : m_pThumbnail->DIBGeneration(); }
 
+	// True if the DIB returned by the last GetDIB() call (and DIBPixelsLastProcessed()) is already converted to the color
+	// space of the display (PreciseDisplayColors=true and PFLAG_DisplayRendering, see CDisplayColorProfile::GetRenderTransform()).
+	// It must then be painted as it is, without conversion, and must not leave JPEGView (see DIBPixelsLastProcessedForExport()).
+	bool IsDIBDisplayEncoded() const { return m_pDIBRenderTransform != NULL; }
+
+	// Same as DIBPixelsLastProcessed(true), but never converted to the color space of the display: if the last DIB is
+	// (see IsDIBDisplayEncoded()), it is created again in the color space of the image. For pixels leaving JPEGView.
+	void* DIBPixelsLastProcessedForExport();
+
 	// Embedded ICC profile of the image if its pixels are kept in that color space instead of sRGB
 	// (see ICCProfileTransform::KeepEmbeddedColorSpace()), empty if the pixels are sRGB.
 	// All DIBs returned by this class are then in this color space and must be converted when they leave JPEGView
@@ -411,6 +420,9 @@ private:
 	unsigned int m_nDIBGeneration; // see DIBGeneration()
 	ICCProfilePtr m_pICCProfile; // see GetICCProfile()
 	bool m_bDIBRecomputed; // set when the content of the cached DIBs changed since the last generation update
+	// Transform m_pDIBPixels (and m_pDIBPixelsLUTProcessed) were converted to the display with by the resampler,
+	// empty if they are in the color space of the image (see IsDIBDisplayEncoded())
+	DisplayRenderTransformPtr m_pDIBRenderTransform;
 
 	// Half size version of the original pixels (32 bpp BGRA, size m_HalfSize), downsampled with Catmull-Rom.
 	// Used as source for strong downscaling instead of the original pixels (see GetHalfSizeSource()).
@@ -483,11 +495,18 @@ private:
 	// Resample when panning was done, using existing data in DIBs. Old clipping rectangle is given in oldClippingRect
 	void ResampleWithPan(void* & pDIBPixels, void* & pDIBPixelsLUTProcessed, CSize fullTargetSize, 
 		CSize clippingSize, CPoint targetOffset, CRect oldClippingRect,
-		EProcessingFlags eProcFlags, const CImageProcessingParams & imageProcParams, double dRotation, EResizeType eResizeType);
+		EProcessingFlags eProcFlags, const CImageProcessingParams & imageProcParams, double dRotation, EResizeType eResizeType,
+		const CDisplayRenderTransform* pDisplayTransform);
 
 	// Resample to given target size. Returns resampled DIB
 	void* Resample(CSize fullTargetSize, CSize clippingSize, CPoint targetOffset, 
-		EProcessingFlags eProcFlags, double dSharpen, double dRotation, EResizeType eResizeType);
+		EProcessingFlags eProcFlags, double dSharpen, double dRotation, EResizeType eResizeType,
+		const CDisplayRenderTransform* pDisplayTransform);
+
+	// Gets the transform to convert the resampled DIB directly to the display with (passed to Resample()), empty if the DIB
+	// is resampled in the color space of the image. Only for high quality resampling with SIMD, PreciseDisplayColors=true
+	// and PFLAG_DisplayRendering.
+	DisplayRenderTransformPtr GetDisplayRenderTransform(EProcessingFlags eProcFlags, EResizeType eResizeType, double dRotation, const CTrapezoid* pTrapezoid) const;
 
 	// Resize to given target size. Returns resampled DIB. Used when resizing original pixels.
 	void* InternalResize(void* pixels, int channels, EResizeFilter filter, CSize targetSize, CSize sourceSize);

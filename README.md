@@ -12,6 +12,7 @@ Display color profile support and embedded color profile support are enabled by 
 | ---------- | ----------- |
 | `DisplayColorProfile` | `auto` (default): use the profile assigned to the monitor in Windows color management. `none`: no display color management. Or the filepath of an ICC profile (`.icc`, `.icm`), absolute or relative to the JPEGView folder. |
 | `UseEmbeddedColorProfiles` | `true` (default): use the ICC profiles embedded in images. The default value in sylikc/jpegview was `false`.|
+| `PreciseDisplayColors` | `true` (default): the high quality resampling filter converts images directly to the display profile, in floating point, so they are rounded to 8 bit only once. Contrast, brightness, saturation, color balance, auto correction, local density correction, landscape mode and unsharp mask are not available in this mode (sharpen is). `false`: images are converted when painted and all image adjustments are available. |
 
 Nothing is converted when the monitor uses the default sRGB profile, or when Windows color manages the monitor itself (HDR or "Automatically manage color for apps").
 

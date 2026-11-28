@@ -3,6 +3,7 @@
 #include "Helpers.h"
 #include "HelpersGUI.h"
 #include "ProcessParams.h"
+#include "SettingsProvider.h"
 #include "NLS.h"
 
 #define SLIDER_WIDTH 130
@@ -45,17 +46,20 @@ CImageProcessingPanel::CImageProcessingPanel(HWND hWnd, INotifiyMouseCapture* pN
 	m_nYStart = 0xFFFF;
 	m_nTotalSliders = 0;
 
-	AddSlider(ID_slContrast, CNLS::GetString(_T("Contrast")), &(pParams->Contrast), NULL, -0.5, 0.5, 0.0, true, false, false);
-	AddSlider(ID_slBrightness, CNLS::GetString(_T("Brightness")), &(pParams->Gamma), NULL, 0.5, 2.0, 1.0, true, true, true);
-	AddSlider(ID_slSaturation, CNLS::GetString(_T("Saturation")), &(pParams->Saturation), NULL, 0.0, 2.0, 1.0, true, false, false);
-	AddSlider(ID_slCR, CNLS::GetString(_T("C - R")), &(pParams->CyanRed), NULL, -1.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slMG, CNLS::GetString(_T("M - G")), &(pParams->MagentaGreen), NULL, -1.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slYB, CNLS::GetString(_T("Y - B")), &(pParams->YellowBlue), NULL, -1.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slLightenShadows, CNLS::GetString(_T("Lighten Shadows")), &(pParams->LightenShadows), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slDarkenHighlights, CNLS::GetString(_T("Darken Highlights")), &(pParams->DarkenHighlights), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slDeepShadows, CNLS::GetString(_T("Deep Shadows")), &(pParams->LightenShadowSteepness), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
-	AddSlider(ID_slColorCorr, CNLS::GetString(_T("Color Correction")), &(pParams->ColorCorrectionFactor), pEnableContrastCorr, -0.5, 0.5, 0.0, true, false, false);
-	AddSlider(ID_slContrastCorr, CNLS::GetString(_T("Contrast Correction")), &(pParams->ContrastCorrectionFactor), pEnableContrastCorr, 0.0, 1.0, 0.0, true, false, false);
+	// With PreciseDisplayColors=true the image adjustments are not available, only the Sharpen slider is shown
+	if (!CSettingsProvider::This().PreciseDisplayColors()) {
+		AddSlider(ID_slContrast, CNLS::GetString(_T("Contrast")), &(pParams->Contrast), NULL, -0.5, 0.5, 0.0, true, false, false);
+		AddSlider(ID_slBrightness, CNLS::GetString(_T("Brightness")), &(pParams->Gamma), NULL, 0.5, 2.0, 1.0, true, true, true);
+		AddSlider(ID_slSaturation, CNLS::GetString(_T("Saturation")), &(pParams->Saturation), NULL, 0.0, 2.0, 1.0, true, false, false);
+		AddSlider(ID_slCR, CNLS::GetString(_T("C - R")), &(pParams->CyanRed), NULL, -1.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slMG, CNLS::GetString(_T("M - G")), &(pParams->MagentaGreen), NULL, -1.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slYB, CNLS::GetString(_T("Y - B")), &(pParams->YellowBlue), NULL, -1.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slLightenShadows, CNLS::GetString(_T("Lighten Shadows")), &(pParams->LightenShadows), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slDarkenHighlights, CNLS::GetString(_T("Darken Highlights")), &(pParams->DarkenHighlights), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slDeepShadows, CNLS::GetString(_T("Deep Shadows")), &(pParams->LightenShadowSteepness), pEnableLDC, 0.0, 1.0, 0.0, true, false, false);
+		AddSlider(ID_slColorCorr, CNLS::GetString(_T("Color Correction")), &(pParams->ColorCorrectionFactor), pEnableContrastCorr, -0.5, 0.5, 0.0, true, false, false);
+		AddSlider(ID_slContrastCorr, CNLS::GetString(_T("Contrast Correction")), &(pParams->ContrastCorrectionFactor), pEnableContrastCorr, 0.0, 1.0, 0.0, true, false, false);
+	}
 	AddSlider(ID_slSharpen, CNLS::GetString(_T("Sharpen")), &(pParams->Sharpen), NULL, 0.0, 0.5, 0.0, false, false, false);
 	
 	AddButton(ID_btnUnsharpMask, CNLS::GetString(_T("Unsharp mask...")));
@@ -147,7 +151,7 @@ void CImageProcessingPanel::RepositionAll() {
 	int nSliderIdx = 0;
 	int nTotalSliderIdx = 0;
 	int nSliderEndX = 0;
-	int nXButtonStart, nXButton2Start;
+	int nXButtonStart = nXStart, nXButton2Start = nXStart; // (only Sharpen slider with PreciseDisplayColors=true)
 	CSliderDouble* pSliderColumn[3];
 	ControlsIterator iter;
 	for (iter = m_controls.begin( ); iter != m_controls.end( ); iter++ ) {
